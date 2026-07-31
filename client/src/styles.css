@@ -1,0 +1,1722 @@
+:root {
+  --bg: #faf9f7;
+  --panel: #ffffff;
+  --ink: #1a1a1a;
+  --muted: #6b6b6b;
+  --line: #e6e3dd;
+  --accent: #b4552d;
+  --accent-ink: #ffffff;
+  --nom: #2f6f4e;
+  --claude: #3a4a7a;
+  --danger: #a3352a;
+  --radius: 10px;
+  --maxw: 860px;
+  /* One motion standard: everything animates at this duration with the default ease. */
+  --dur: 150ms;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Full-viewport workspace: left preview rail · centre map · right input drawer · bottom tray. */
+.workspace {
+  --left-w: 300px;
+  --drawer-w: 384px;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+.workspace.drawer-closed {
+  --drawer-w: 0px;
+}
+/* The left preview rail is hidden until a book is pinned — the map takes the full width. */
+.workspace.preview-closed {
+  --left-w: 0px;
+}
+
+.brandbar {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  z-index: 30;
+  pointer-events: none;
+}
+.brandbar .statusbar {
+  margin: 0;
+}
+
+/* Left rail — book preview. Floats translucently OVER the full-bleed map (hnbooks style):
+   no border/shadow, the blurred map showing through is the only separation. */
+.preview {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--left-w);
+  overflow-y: auto;
+  background: rgba(252, 252, 251, 0.82);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 64px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 20;
+}
+.pv-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  z-index: 1;
+}
+.pv-close:hover {
+  color: var(--ink);
+}
+.pv-cover {
+  align-self: center;
+  margin-bottom: 6px;
+}
+.pv-title {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 2px 0 0;
+}
+.pv-author {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Centre stage — the packed cover map. Full-bleed: the side panels float translucently above
+   it, so the canvas runs edge to edge underneath them (like the reference map). */
+.map-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+.map-stage:active {
+  cursor: grabbing;
+}
+.map-fit {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 16;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-size: 15px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(252, 252, 251, 0.8);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--muted);
+  cursor: pointer;
+}
+.map-fit:hover {
+  color: var(--ink);
+}
+/* Keep the Fit button clear of the left rail when a book is pinned. */
+.preview-open .map-fit {
+  left: calc(var(--left-w) + 12px);
+}
+.map-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.map-cluster {
+  position: absolute;
+}
+.map-cover {
+  position: absolute;
+  cursor: pointer;
+}
+.map-cover .cover {
+  width: 100%;
+  height: 100%;
+  border-radius: 3px;
+  border-color: rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+.map-cover:hover {
+  z-index: 5;
+}
+.map-cover:hover .cover {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+.map-cover.active .cover {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.map-cover.fin .cover {
+  outline: 3px solid var(--nom);
+  outline-offset: 1px;
+}
+.fin-check {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--nom);
+  color: #fff;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+/* Cluster names, hnbooks-style: plain black text with a tight white halo around the glyphs —
+   no pill. Hovering one spotlights its cluster (the other covers dim). */
+.map-label {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  font-size: 14px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  cursor: default;
+  z-index: 6;
+  color: #141414;
+  text-shadow:
+    0 0 2px #fff,
+    0 0 3px #fff,
+    0 0 5px #fff,
+    0 1px 2px #fff;
+  transition: transform var(--dur);
+}
+.map-label.hot {
+  transform: translate(-50%, -100%) scale(1.07);
+  text-shadow:
+    0 0 3px #fff,
+    0 0 5px #fff,
+    0 0 8px #fff,
+    0 1px 2px #fff;
+}
+.map-cover.dim {
+  opacity: 0.22;
+  transition: opacity var(--dur);
+}
+
+/* Bowling-style rank: black number on a white circle, tucked inside the cover's corner —
+   1 = strongest overall pick. */
+.rank-badge {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  min-width: 11px;
+  height: 11px;
+  padding: 0 1px;
+  border-radius: 999px;
+  background: #fff;
+  color: #141414;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.25);
+  font-size: 7px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+/* The badge hops to whichever cover corner a cluster title doesn't cross (computed per layout). */
+.rank-badge.tr {
+  left: auto;
+  right: 2px;
+}
+.rank-badge.bl {
+  top: auto;
+  bottom: 2px;
+}
+.rank-badge.br {
+  top: auto;
+  left: auto;
+  right: 2px;
+  bottom: 2px;
+}
+
+/* "?" — the how-this-works summary, top right, clear of the drawer chevron. */
+.help {
+  position: absolute;
+  top: 12px;
+  right: calc(var(--drawer-w) + 44px);
+  z-index: 30;
+  transition: right var(--dur);
+}
+.help-btn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(252, 252, 251, 0.8);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.help-btn:hover {
+  color: var(--ink);
+}
+.help-pop {
+  position: absolute;
+  top: 32px;
+  right: 0;
+  width: 330px;
+  background: var(--panel);
+  border-radius: 10px;
+  box-shadow: 0 16px 46px rgba(0, 0, 0, 0.22);
+  padding: 13px 15px 5px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.help-pop p {
+  margin: 0 0 10px;
+}
+/* Pre-map views live in the full-bleed stage — pad them clear of the floating panels. */
+.stage-scroll {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: 56px calc(var(--drawer-w) + 24px) 24px calc(var(--left-w) + 24px);
+  transition: padding var(--dur);
+}
+.stage-idle {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  padding: 24px calc(var(--drawer-w) + 24px) 24px calc(var(--left-w) + 24px);
+  text-align: center;
+}
+
+/* Right drawer — input, collapses to a tab */
+.drawer {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--drawer-w);
+  background: rgba(252, 252, 251, 0.82);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: 25;
+  transition: width var(--dur);
+}
+/* Collapse/expand chevron — part of the drawer (inside its top-right corner). When the drawer
+   is collapsed to zero width the same rule leaves the chevron floating at the screen edge. */
+.drawer-toggle {
+  position: absolute;
+  right: 8px;
+  top: 12px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  transition: color var(--dur), background var(--dur);
+}
+/* Collapsed: the toggle floats in the button row beside ? — same pill treatment, or it
+   reads as a stray glyph and nobody finds the drawer. */
+.drawer-closed .drawer-toggle {
+  background: rgba(252, 252, 251, 0.8);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-radius: 50%;
+  color: var(--ink);
+}
+.drawer-toggle:hover {
+  color: var(--ink);
+  background: rgba(0, 0, 0, 0.05);
+}
+.drawer-body {
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px 14px;
+}
+.input-form .panel-body {
+  padding: 0;
+}
+
+/* Banners float top-centre over the stage */
+.banners {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 45;
+  width: min(460px, 62%);
+  pointer-events: none;
+}
+.banners .banner {
+  pointer-events: auto;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+  cursor: pointer; /* banners float over the map — click dismisses */
+}
+.banners .banner:hover {
+  opacity: 0.85;
+}
+
+/* Panel */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.panel-head h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+.chevron {
+  color: var(--muted);
+  width: 1em;
+}
+.panel-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* Section titles keep their capitals ("Constraints", "Members"); only list labels inside the
+   cards ("liked", "suggestions") and quiet action links are lowercase. */
+.field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+textarea,
+input,
+select {
+  font: inherit;
+  color: inherit;
+  /* Borderless-at-rest: a faint fill instead of a stroked box; focus inverts to white + hairline. */
+  background: #f4f3f0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 9px 11px;
+  transition: background var(--dur), border-color var(--dur);
+}
+textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+textarea:focus,
+input:focus,
+select:focus {
+  outline: none;
+  background: #fff;
+  border-color: #d5d1c8;
+}
+textarea:hover:not(:focus),
+input:hover:not(:focus),
+select:hover:not(:focus) {
+  background: #efeeea;
+}
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 11px;
+}
+.pace,
+.effort {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pace .field-label,
+.effort .field-label {
+  margin-right: 4px;
+}
+.pace input {
+  width: 64px;
+}
+/* Native number spinners crowd the digits in these narrow fields — hide them; typing works. */
+.pace input::-webkit-outer-spin-button,
+.pace input::-webkit-inner-spin-button,
+.pace-pill input::-webkit-outer-spin-button,
+.pace-pill input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.pace input,
+/* Clear of the pinned rail (same dodge as the fit button). */
+.preview-open .pace-pill {
+  left: calc(var(--left-w) + 12px);
+}
+.pace-pill input {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.effort select {
+  min-width: 96px;
+}
+.hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+.hint.sm {
+  font-size: 11px;
+}
+
+/* Bottom actions: a tidy 2×2 grid of secondary buttons with Run spanning full width. */
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+.quiet-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+.actions .btn.run {
+  width: 100%;
+  padding: 9px 10px;
+}
+
+.btn {
+  font: inherit;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 9px 18px;
+  cursor: pointer;
+}
+.btn.primary {
+  background: var(--ink);
+  color: #fff;
+}
+.btn.primary:hover {
+  background: #333;
+}
+.btn.primary:disabled {
+  background: #b8b5ad;
+  cursor: default;
+}
+.btn.danger {
+  background: #fff;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* Status */
+.statusbar {
+  margin: 16px 2px;
+  font-size: 13px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.statusbar.done {
+  color: var(--nom);
+}
+.statusbar.error {
+  color: var(--danger);
+}
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.banner {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  margin: 10px 0;
+}
+.banner.error {
+  background: #fbeae7;
+  color: var(--danger);
+  border: 1px solid #f0c9c2;
+}
+.banner.warn {
+  background: #fdf3e3;
+  color: #8a5a1a;
+  border: 1px solid #f0dcb4;
+}
+
+/* Candidates (M1 flat list; replaced by the cover map at M5) */
+.candidates h2 {
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 10px;
+}
+.candidates .count {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--line);
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-weight: 600;
+}
+.candidates ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.candidate {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  animation: fade-in 0.25s ease;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+.c-title {
+  font-weight: 600;
+}
+.c-author {
+  color: var(--muted);
+}
+.badge {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  color: #fff;
+  white-space: nowrap;
+}
+.badge.member_nomination {
+  background: var(--nom);
+}
+.badge.member_loved {
+  background: #46788a;
+}
+.badge.claude_own_pick {
+  background: var(--claude);
+}
+
+.muted {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.btn.ghost {
+  background: #fff;
+  color: var(--ink);
+  border-color: var(--line);
+}
+.btn.ghost:hover:not(:disabled) {
+  border-color: #b9b5ac;
+  background: #f3f2ef;
+}
+.btn.ghost:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Members card deck */
+.field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.linkbtn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.linkbtn:hover {
+  color: var(--ink);
+  background: #f0efec;
+}
+.linkbtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: none;
+  color: var(--muted);
+}
+
+/* Loaded past-read feedback (excluded from candidates; calibrates scoring) */
+.history-note {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* Quiet overlay scrollbars in the floating panels */
+.drawer-body,
+.preview {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+}
+.drawer-body::-webkit-scrollbar,
+.preview::-webkit-scrollbar {
+  width: 8px;
+}
+.drawer-body::-webkit-scrollbar-thumb,
+.preview::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+}
+.drawer-body::-webkit-scrollbar-track,
+.preview::-webkit-scrollbar-track {
+  background: transparent;
+}
+.deck-empty {
+  padding: 14px 4px;
+  font-size: 13px;
+}
+.deck {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.deck-count {
+  font-size: 11px;
+  color: var(--muted);
+}
+.deck-spacer {
+  flex: 1;
+}
+/* Member flashcard: flat (no border box), only filled fields, tap the sides to advance */
+.flashcard {
+  position: relative;
+}
+.fc-nav {
+  position: absolute;
+  top: 0;
+  bottom: 36px;
+  width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  /* Always visibly present — members couldn't find near-invisible hover-only arrows. */
+  background: rgba(0, 0, 0, 0.03);
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  z-index: 2;
+  transition: background var(--dur), color var(--dur);
+}
+.fc-nav:hover {
+  background: #f2f1ee;
+  color: var(--ink);
+}
+.fc-nav.left {
+  left: 0;
+}
+.fc-nav.right {
+  right: 0;
+}
+/* At the first/last card the edge is an inert zone: it still captures the click (so it can't fall
+   through to the card's edit handler) but shows nothing and does nothing. */
+.fc-nav.off {
+  color: transparent;
+  cursor: default;
+}
+.fc-nav.off:hover {
+  background: none;
+}
+.fc-body {
+  padding: 2px 2px 4px;
+  min-height: 92px;
+  border-radius: 8px;
+}
+/* Card action links (skip/edit) sit in the bottom-right corner, above the nav strip. */
+.fc-links {
+  position: absolute;
+  right: 2px;
+  bottom: 40px;
+  z-index: 3;
+  display: flex;
+  gap: 2px;
+}
+/* A skipped member stays visible but clearly out of the next pick. */
+.flashcard.skipped .fc-body {
+  opacity: 0.45;
+}
+.fc-skipped-chip {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 12px;
+}
+.btn.primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* Inline per-person editor (the card's "edit" link opens it; "done"/clicking away closes) */
+.fc-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 2px 20px; /* clearance for the bottom-right done link */
+}
+.fc-edit-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+.fc-edit-para {
+  font-size: 13px;
+}
+.fc-edit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.fc-edit-list > span {
+  font-size: 13px;
+  color: var(--muted);
+}
+.fc-edit-list textarea {
+  font-size: 13px;
+}
+/* Flashcard typography: just two sizes (15 name / 13 everything) + muted lowercase labels.
+   Book lists share the exact font of the interest paragraph. */
+.fc-name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.fc-sub,
+.fc-list > p {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+  margin: 0;
+}
+.fc-sub {
+  margin-top: 4px;
+}
+.fc-list {
+  margin-top: 10px;
+}
+.fc-list > span {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 1px;
+}
+.fc-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+}
+/* Pace range chart (one row per member, low–high, with the group median) */
+.pace-graph {
+  flex-basis: 100%;
+  width: 100%;
+  max-width: 340px;
+  margin-top: 2px;
+  overflow: visible;
+}
+.pg-name {
+  font-size: 9px;
+  fill: var(--muted);
+}
+.pg-track {
+  stroke: #ecebe6;
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+.pg-range {
+  stroke: #4a4a4a;
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+.pg-dot {
+  fill: #2a2a2a;
+}
+.pg-median {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+}
+.pg-axis {
+  font-size: 9px;
+  fill: var(--muted);
+}
+.pg-median-lbl {
+  fill: var(--accent);
+  font-weight: 600;
+}
+
+/* Show-Prompt modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 18, 15, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  overflow: auto;
+  z-index: 50;
+}
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  width: min(760px, 100%);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.modal-head h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 4px;
+}
+.modal-close:hover {
+  color: var(--ink);
+}
+.modal-body {
+  padding: 16px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.prompt-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.prompt-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+.prompt-pre {
+  margin: 0;
+  padding: 12px;
+  background: #faf8f4;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Books grid (M3; becomes the clustered cover map at M5) */
+.books {
+  margin-top: 18px;
+}
+.books-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+.book {
+  width: 118px;
+}
+/* Entrance animation only for the streaming verify grid (books appear one by one). */
+.books .book {
+  animation: fade-in 0.25s ease;
+}
+.book.dropped {
+  display: none;
+}
+.cover {
+  position: relative;
+  width: 118px;
+  height: 176px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  display: flex;
+}
+.cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  -webkit-user-drag: none;
+}
+.cover-ph {
+  width: 100%;
+  padding: 10px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ph-title {
+  font-weight: 650;
+  font-size: 12.5px;
+  line-height: 1.25;
+  color: rgba(0, 0, 0, 0.72);
+}
+.ph-author {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.5);
+}
+.book.pending .cover {
+  opacity: 0.5;
+}
+.cover-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.verify-badge {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  background: rgba(180, 85, 45, 0.92);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.book-meta {
+  margin-top: 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.b-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.b-author {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.b-facts {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+.book-meta .badge {
+  margin: 5px 0 0;
+  align-self: flex-start;
+}
+.dropped-note {
+  color: var(--muted);
+  font-size: 12.5px;
+  margin-top: 16px;
+}
+
+/* Scored view (M4; the clustered, sized/colored cover map comes at M5) */
+.scored {
+  margin-top: 18px;
+}
+/* (cluster bands / tiles replaced by the packed cover map — see .map-stage above) */
+
+/* Book detail — shared by the left preview rail (.preview) and the on-map hover card (.hovercard) */
+.preview {
+  font-size: 12.5px;
+  gap: 7px;
+}
+/* Floating on-hover detail card (display-only; click a cover to pin + act in the left rail). */
+.hovercard {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--cluster, var(--accent));
+  border-radius: 10px;
+  box-shadow: 0 16px 46px rgba(0, 0, 0, 0.24);
+  padding: 12px 14px 13px;
+  font-size: 12.5px;
+  pointer-events: none;
+  /* Belt-and-braces: even a tall card never exceeds the window (position is clamped too). */
+  max-height: calc(100vh - 16px);
+  overflow: hidden;
+}
+.hovercard .pv-title {
+  font-size: 15px;
+}
+/* Identity block reads centered (title, author, facts, badges); prose stays left-aligned. */
+.pv-title,
+.pv-author,
+.hc-facts {
+  text-align: center;
+}
+.hc-facts {
+  color: var(--muted);
+  font-size: 12px;
+}
+.hc-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+}
+.hc-tag {
+  position: relative;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: var(--line);
+  border-radius: 4px;
+  padding: 1px 6px;
+  cursor: pointer;
+  user-select: none;
+}
+/* Click-toggled mini explainer (hover-dwell is unreliable on a projector/trackpad). */
+.tag-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  /* transform set inline by Tag: centered, then nudged inside the viewport */
+  z-index: 70;
+  width: 190px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.35;
+  text-transform: none;
+  letter-spacing: 0;
+  text-align: left;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+.hc-tag.prov {
+  background: transparent;
+  border: 1px solid currentColor;
+  text-transform: none;
+  font-weight: 600;
+}
+.hc-tag.exp {
+  background: #6b4a8a;
+  color: #fff;
+}
+.hc-tag.warn {
+  background: var(--danger);
+  color: #fff;
+}
+.hc-summary {
+  margin: 2px 0;
+  line-height: 1.45;
+}
+.hc-fits {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 2px 0;
+}
+.hc-fit {
+  display: grid;
+  grid-template-columns: 68px 1fr 18px;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.hc-fit-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hc-fit-bar {
+  height: 6px;
+  background: var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.hc-fit-bar span {
+  display: block;
+  height: 100%;
+}
+.hc-fit-num {
+  text-align: right;
+  color: var(--muted);
+}
+.hc-line {
+  margin: 1px 0;
+  line-height: 1.4;
+}
+.hc-line b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.hc-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: 7px;
+  margin-top: 1px;
+}
+.hc-foot b {
+  color: var(--ink);
+}
+.hc-pull {
+  color: #8a6d3b;
+}
+
+/* Add button inside the preview panel */
+.hc-add {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  background: #fff;
+  border-radius: 7px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.hc-add.on {
+  background: var(--nom);
+  border-color: var(--nom);
+  color: #fff;
+}
+.hc-add:disabled {
+  opacity: 0.5;
+  cursor: default;
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+/* Finalists tray (sticky bottom bar) */
+.tray {
+  position: absolute;
+  left: calc(var(--left-w) + 16px);
+  right: calc(var(--drawer-w) + 16px);
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  background: rgba(250, 250, 249, 0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 12px;
+  z-index: 35;
+  transition: right var(--dur), left var(--dur);
+}
+.tray-label {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.tray-items {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  align-items: center;
+}
+.tray-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 8px 5px 5px;
+}
+.tray-item .cover {
+  box-shadow: none;
+  flex: none;
+}
+.tray-item-meta {
+  min-width: 0;
+}
+.tray-item-title,
+.tray-item-sub {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+.tray-item-title {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.tray-item-sub {
+  font-size: 11px;
+  color: var(--muted);
+}
+.tray-remove {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.tray-remove:hover {
+  color: var(--danger);
+}
+.tray-present {
+  white-space: nowrap;
+}
+.tray-present:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Present mode (full-screen advocacy) */
+.present {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px 90px;
+}
+.present-close {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  background: none;
+  border: none;
+  font-size: 30px;
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 1;
+}
+.present-close:hover {
+  color: var(--ink);
+}
+.present-card {
+  display: flex;
+  gap: 36px;
+  align-items: flex-start;
+  max-width: 820px;
+  width: 100%;
+}
+.present-card .cover {
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.22);
+  flex: none;
+}
+.present-info {
+  flex: 1;
+  min-width: 0;
+}
+.present-title {
+  font-size: 30px;
+  font-weight: 680;
+  letter-spacing: -0.01em;
+  margin: 0 0 2px;
+  line-height: 1.1;
+}
+.present-author {
+  color: var(--muted);
+  font-size: 16px;
+  margin-bottom: 16px;
+}
+.present-price {
+  font-size: 22px;
+  margin-bottom: 14px;
+}
+.present-price b {
+  color: var(--accent);
+}
+.present-tags {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.present-summary {
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 0 0 14px;
+}
+.present-line {
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 8px;
+  color: #333;
+}
+.present-line b {
+  color: var(--ink);
+}
+.present-fits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.present-fit {
+  font-size: 13px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 12px;
+}
+.present-fit b {
+  color: var(--accent);
+}
+.present-nav {
+  position: absolute;
+  bottom: 26px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.present-nav button {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 22px;
+  cursor: pointer;
+  color: var(--ink);
+}
+.present-nav button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.present-count {
+  font-size: 14px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Sharing: publish the map as one read-only link ---------- */
+
+.share {
+  position: absolute;
+  top: 12px;
+  right: calc(var(--drawer-w) + 82px);
+  z-index: 30;
+  transition: right var(--dur);
+}
+.share-btn {
+  height: 26px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 13px;
+  background: rgba(252, 252, 251, 0.8);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.share-btn:hover {
+  color: var(--ink);
+}
+.share-pop {
+  position: absolute;
+  top: 32px;
+  right: 0;
+  width: 300px;
+  background: var(--panel);
+  border-radius: 10px;
+  box-shadow: 0 16px 46px rgba(0, 0, 0, 0.22);
+  padding: 13px 15px;
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.share-hint {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.share-err {
+  margin: 0;
+  color: var(--danger);
+}
+.share-url-row {
+  display: flex;
+  gap: 6px;
+}
+.share-url {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* Position chip: this book's place in the ordering (1 = favorite / first presented). */
+.tray-pos {
+  min-width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.tray-move {
+  display: flex;
+  gap: 1px;
+}
+.tray-move button {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.tray-move button:hover:not(:disabled) {
+  color: var(--ink);
+}
+.tray-move button:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+/* Phones (members open the shared link on their own devices). The pinned rail becomes a
+ * bottom sheet above the tray so the map keeps the full width. */
+@media (max-width: 720px) {
+  .workspace {
+    --left-w: 0px;
+  }
+  .preview {
+    top: auto;
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: 60%;
+    border-radius: 12px;
+    box-shadow: 0 -6px 30px rgba(0, 0, 0, 0.18);
+    padding: 14px 14px 12px;
+    /* Above the tray: the sheet is transient — ✕ (or re-tapping the cover) returns to it. */
+    z-index: 40;
+  }
+  .hovercard {
+    display: none;
+  }
+  .tray {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .help {
+    right: 12px;
+  }
+  .share {
+    right: 50px;
+  }
+  /* Viewer mode keeps --drawer-w while loading/failed — don't let it crush the message. */
+  .stage-idle {
+    padding: 24px 16px;
+  }
+  }
+
+/* Viewer-side pace: adjusting it only changes that viewer's sessions estimate. */
+.pace-pill {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  transition: left var(--dur);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 15px;
+  background: rgba(252, 252, 251, 0.85);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-size: 12px;
+}
+/* Clear of the pinned rail (same dodge as the fit button). */
+.preview-open .pace-pill {
+  left: calc(var(--left-w) + 12px);
+}
+.pace-pill input {
+  width: 44px;
+  font: inherit;
+  border: none;
+  background: none;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  text-align: center;
+}
+
+/* On-canvas legend for the rank badges — the ? explains the method, this decodes the number. */
+.rank-legend {
+  position: absolute;
+  top: 48px;
+  left: 12px;
+  z-index: 16;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 13px;
+  background: rgba(252, 252, 251, 0.8);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-size: 11.5px;
+  color: var(--muted);
+  pointer-events: none;
+  transition: left var(--dur);
+}
+.preview-open .rank-legend {
+  left: calc(var(--left-w) + 12px);
+}
+.rank-legend-badge {
+  min-width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  color: #141414;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
+  font-size: 9px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

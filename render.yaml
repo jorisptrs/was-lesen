@@ -1,0 +1,25 @@
+# Render blueprint — deploys the single-process app on the FREE plan.
+# In the Render dashboard: New → Blueprint → point at this repo; set the two secret keys when
+# prompted. Free-plan caveats: the instance sleeps after ~15 min idle (first visitor waits
+# ~30-60s) and has 512MB RAM — if the service OOMs on startup, set EMBEDDINGS_PROVIDER=none
+# (the map falls back to the deterministic layout; everything else works).
+services:
+  - type: web
+    name: was-lesen
+    runtime: docker
+    plan: free
+    region: frankfurt # the group is in Europe
+    healthCheckPath: /api/health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false # set in the dashboard — never committed
+      - key: GOOGLE_BOOKS_API_KEY
+        sync: false # optional but recommended (covers/pages for recent titles)
+      - key: ANTHROPIC_MODEL
+        value: claude-haiku-4-5
+      - key: EMBEDDINGS_PROVIDER
+        value: local
+      - key: OPENLIBRARY_USER_AGENT
+        value: "WasLesen/0.1 (contact: you@example.com)" # put YOUR email here (Open Library asks for one)
+      - key: TRUST_PROXY
+        value: "1" # Render terminates TLS in front of us; needed for the per-IP rate limit

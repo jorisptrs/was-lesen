@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.local
+.DS_Store
+
+# Tally exports contain personal data — never commit
+*.csv
+
+# Saved/published runs carry member names and paragraphs — never commit one by accident
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsconfig.base.json
