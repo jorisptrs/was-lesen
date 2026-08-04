@@ -10,9 +10,10 @@ services:
     plan: free
     region: frankfurt # the group is in Europe
     healthCheckPath: /api/health
+    # NOTE: no ANTHROPIC_API_KEY. Claude runs only through the local `claude` CLI, which a host
+    # has no login for — so this deployment SERVES and PUBLISHES maps computed on your laptop.
+    # It never calls Claude, which is also why it costs nothing to leave running.
     envVars:
-      - key: ANTHROPIC_API_KEY
-        sync: false # set in the dashboard — never committed
       - key: GOOGLE_BOOKS_API_KEY
         sync: false # optional but recommended (covers/pages for recent titles)
       - key: ANTHROPIC_MODEL

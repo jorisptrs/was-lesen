@@ -27,13 +27,11 @@ for (const [key, value] of Object.entries(process.env)) {
 }
 
 const schema = z.object({
-  // "api" bills pay-per-token via ANTHROPIC_API_KEY. "cli" shells out to the logged-in
-  // `claude` CLI instead — the organizer's own subscription covers personal local runs, no
-  // API credits touched. CLI mode is for the laptop, not a host (no login there).
-  CLAUDE_BACKEND: z.enum(["api", "cli"]).default("api"),
-  ANTHROPIC_API_KEY: z.string().optional(),
-  // Cheapest by default (scarce API credits); up the model at deployment. Note: Haiku 4.5
-  // does NOT accept output_config.effort — the Claude client omits effort/thinking for it.
+  // NOTE: there is no ANTHROPIC_API_KEY and no backend switch. Claude runs ONLY through the
+  // logged-in `claude` CLI (the organizer's subscription) — see claude/client.ts. Running the
+  // pipeline therefore requires a machine with a CLI login; a host can only serve and publish.
+  // The default model is mapped onto Sonnet by the CLI layer (it doesn't serve Haiku), and the
+  // per-run quality preset overrides it anyway.
   ANTHROPIC_MODEL: z.string().min(1).default("claude-haiku-4-5"),
   // Stage-0 title normalization can use a stronger model for accuracy (recent/foreign titles);
   // defaults to ANTHROPIC_MODEL. It's one cheap call per import.
@@ -70,16 +68,10 @@ const schema = z.object({
   NODE_ENV: z.string().default("development"),
 });
 
-const checked = schema.superRefine((v, ctx) => {
-  if (v.CLAUDE_BACKEND === "api" && !v.ANTHROPIC_API_KEY) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["ANTHROPIC_API_KEY"],
-      message: "required unless CLAUDE_BACKEND=cli",
-    });
-  }
-});
-const parsed = checked.safeParse(source);
+// No cross-field checks left: with the API backend gone there is no key to require. Auth for
+// Claude lives entirely in the `claude` CLI's own login, not in this app's environment — which
+// is also why a fresh clone can run the tests without any secret at all.
+const parsed = schema.safeParse(source);
 if (!parsed.success) {
   const details = parsed.error.issues.map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`).join("\n");
   console.error(`[config] Invalid environment:\n${details}\n\nSee .env.example.`);

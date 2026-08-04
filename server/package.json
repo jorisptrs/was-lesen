@@ -9,7 +9,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.110.0",
     "@huggingface/transformers": "^4.2.0",
     "@sb/shared": "*",
     "compression": "^1.8.1",

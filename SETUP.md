@@ -7,15 +7,14 @@ into a dashboard.
 **Contents**
 
 1. [What you'll need](#1-what-youll-need)
-2. [Deploy it](#2-deploy-it)
+2. [Run it locally](#2-run-it-locally-this-is-the-main-way) · [Deploy it (optional)](#2b-deploy-it-optional--only-for-a-shareable-link)
 3. [Lock it down ← don't skip](#3-lock-it-down--dont-skip)
 4. [Keep it awake](#4-keep-it-awake-optional-but-recommended)
 5. [Build your intake form](#5-build-your-intake-form)
 6. [Build your feedback form](#6-build-your-feedback-form-optional)
 7. [Run your first cycle](#7-run-your-first-cycle)
 8. [What it costs](#8-what-it-costs)
-9. [Free runs on a Claude subscription](#9-free-runs-on-a-claude-subscription-optional)
-10. [Troubleshooting](#10-troubleshooting)
+9. [Troubleshooting](#9-troubleshooting)
 
 ---
 
@@ -23,11 +22,20 @@ into a dashboard.
 
 | | What | Where | Cost |
 |---|---|---|---|
-| **Required** | Anthropic API key | [console.anthropic.com](https://console.anthropic.com/settings/keys) → API keys → Create key | Pay per run, see [§8](#8-what-it-costs) |
-| **Required** | A host | [render.com](https://render.com/) — free plan, no card | Free |
+| **Required** | A Claude subscription + the `claude` CLI | [Install and log in](https://docs.claude.com/en/docs/claude-code/overview) | Covered by your Claude Pro/Max plan |
+| **Recommended** | A host, if you want a shareable link | [render.com](https://render.com/) — free plan, no card | Free |
 | **Recommended** | Google Books API key | [console.cloud.google.com](https://console.cloud.google.com/) → new project → enable **Books API** → Credentials → API key | Free |
 | **Recommended** | A form tool | [Tally](https://tally.so) (free, what this was built against) or Google Forms | Free |
 | **Optional** | Uptime pinger | [uptimerobot.com](https://uptimerobot.com) | Free |
+
+> **There is no API key.** Claude is reached through the `claude` CLI you're already logged into,
+> so runs come out of your Claude subscription rather than pay-per-token API credits. Verify it
+> works before going further — `claude --version` should print a version, and `claude` on its own
+> should start without asking you to log in.
+>
+> **This is why the pipeline only runs on your own machine.** A host has no CLI login, so a
+> deployed copy can *display* a map but cannot compute one. That's the intended shape: you run it
+> on your laptop, then publish the result for everyone to look at.
 
 > **Why the Google Books key matters.** Open Library alone misses a lot of recent titles.
 > Google Books fills in covers and page counts and rescues books Open Library doesn't know. It's
@@ -36,19 +44,36 @@ into a dashboard.
 
 ---
 
-## 2. Deploy it
+## 2. Run it locally (this is the main way)
 
-The repo ships a `render.yaml` blueprint, so Render configures itself.
+```bash
+git clone <your fork>
+cd was-lesen
+npm install
+cp .env.example .env    # no secrets to fill in
+npm run dev
+```
+
+Open http://localhost:5173. That's a fully working app — import a CSV, run, browse the map,
+save the result as JSON. If you only ever use it on the laptop you plug into the projector,
+**you can stop reading after §5.**
+
+## 2b. Deploy it (optional — only for a shareable link)
+
+Deploy if you want your group to browse the map on their own phones. The deployed copy serves and
+publishes; it never runs the pipeline.
 
 1. Fork this repo to your own GitHub account (button, top right).
 2. Sign in to [Render](https://dashboard.render.com/) with GitHub.
 3. **New → Blueprint**, pick your fork, and let it read `render.yaml`.
-4. It will prompt for the two secret values. Paste them:
-   - `ANTHROPIC_API_KEY` — from step 1
-   - `GOOGLE_BOOKS_API_KEY` — optional but recommended
+4. Set `GOOGLE_BOOKS_API_KEY` when prompted (optional). There is no Anthropic key to set.
 5. Deploy. First build takes a few minutes (it's a Docker image).
-6. Visit `https://<your-app-name>.onrender.com/api/health`. You want `{"ok":true}` or similar —
-   if you get that, the server is alive.
+6. Visit `https://<your-app-name>.onrender.com/api/health`. You want `{"ok":true}` — if you get
+   that, the server is alive.
+
+Then set `PUBLISH_TARGET=https://<your-app>.onrender.com` and `PUBLISH_PASSPHRASE=<the hosted
+APP_PASSPHRASE>` in your **local** `.env`, and the publish button on your laptop sends the run
+straight to the hosted app in one click.
 
 **A note on the free plan.** 512 MB RAM, 0.1 CPU, sleeps after 15 minutes idle, and the
 filesystem is wiped on every restart. All fine for this, with two consequences worth knowing:
@@ -172,45 +197,31 @@ paragraphs.
 
 ## 8. What it costs
 
-Per run, roughly:
+**Nothing per run.** Claude comes out of your existing Pro/Max subscription, hosting is free on
+Render's free plan, and the embeddings that position the map run in-process on your own machine.
+A Google Books key is free too.
 
-| Preset | Model | Cost |
+The **quality preset** in the UI still picks how hard Claude thinks:
+
+| Preset | Model | When |
 |---|---|---|
-| **test** | Haiku | ~$0.25 |
-| **standard** | Sonnet | ~$1 |
-| **best** | Fable | ~$2 |
+| **test** | Sonnet | Iterating on your form and data |
+| **standard** | Sonnet, high effort | Most real runs |
+| **best** | Fable, high effort | The meeting that matters |
 
-Plus a few cents for title cleanup and the rule filter. For a monthly book club that's a couple
-of dollars a year at **test**, or ~$25/year if you always use **best**.
+(The **test** preset asks for Haiku, but the CLI doesn't serve it, so the app maps it onto Sonnet
+automatically. Since you're not paying per token, there's little reason to stay on **test** once
+your data is clean.)
 
-Iterate on **test** while you're getting your form and your group's data right, then run
-**best** for the meeting that matters. The difference shows up most in the cluster names and in
-how well the scoring reads a subtle paragraph.
-
-Hosting is free. Embeddings are free (they run in-process, on the server, no API).
-
----
-
-## 9. Free runs on a Claude subscription (optional)
-
-If you have a Claude Pro or Max subscription, you can run the pipeline through the
-[Claude CLI](https://docs.claude.com/en/docs/claude-code/overview) instead of paying per token.
-This only works on **your own machine** — a host has no CLI login.
-
-```bash
-npm install
-cp .env.example .env       # set CLAUDE_BACKEND=cli
-npm run dev
-```
-
-Then bridge the result to your hosted app: run locally → **save** the JSON → open the hosted app
-→ unlock → **load run** → **publish**. Or set `PUBLISH_TARGET=https://<your-app>.onrender.com`
-and `PUBLISH_PASSPHRASE=<your APP_PASSPHRASE>` in your local `.env`, and **publish** forwards
-there in one click.
+> **Known limit — large groups.** The CLI caps a single reply at about 4096 tokens and gives no
+> way to raise it. Stage 3 scores every surviving book for every member in one reply, so a big
+> pool overruns that cap and the run fails at the scoring step. Around 6 members and 70+ books is
+> already too big. Fewer members, or fewer candidates, stays under it. Fixing this properly means
+> scoring in batches — see `docs/NOTES.md` (M33).
 
 ---
 
-## 10. Troubleshooting
+## 9. Troubleshooting
 
 **"That CSV doesn't look like an export."**
 The app couldn't find a name or interest column. Check that one header contains `name` and one
@@ -219,6 +230,11 @@ contains `interested in reading`.
 **My members' suggestions went into the wrong bucket.**
 Your two "List books" columns are the wrong way round, or your form tool didn't add the ` (2)`
 suffix. See the trap note in [§5](#5-build-your-intake-form).
+
+**The run dies at the scoring step / "claude CLI failed".**
+Most likely the 4096-token reply cap — see the note in [§8](#8-what-it-costs). Run with fewer
+members, or trim the candidate lists, and it will fit. Also check `claude --version` works and
+that `claude` starts without prompting you to log in.
 
 **Lots of books show "needs verify".**
 Usually a missing `GOOGLE_BOOKS_API_KEY`. Some books are genuinely just niche or non-English —

@@ -740,6 +740,41 @@ and a **bottom finalists bar**.
     commits. The original development history stays private. `*.json` is gitignored (minus the
     package/tsconfig files) so a downloaded run file can't be committed by accident.
 
+- **M33 — public mirror, and the API backend removed.**
+  - **This public mirror** was published (MIT, `SETUP.md` for deployers), built from a single
+    fresh commit because scrubbing a working tree cannot reach names already written into earlier
+    commits. The development history stays private.
+  - **`cp .env.example .env` produced a server that refused to boot** — the example ships
+    optional keys with empty values to document them, but `FILTER_MODEL=` fails
+    `z.string().min(1)` (a zod `.default()` only fires on an ABSENT key, never an empty one) and
+    `PUBLISH_TARGET=` is not a valid URL. `config.ts` already treated an exported-but-empty real
+    env var as unset; it just never applied the same rule to `.env`'s own values. Invisible to
+    the author (a working `.env` has real values) and in production (Render passes env vars
+    directly) — only the fresh-clone path was broken, which is the path every newcomer takes.
+  - **The API backend is GONE. Claude runs only through the logged-in `claude` CLI.** No
+    `ANTHROPIC_API_KEY`, no `CLAUDE_BACKEND` switch, `@anthropic-ai/sdk` dropped from
+    `server/package.json`. Rationale: this is a single-organizer tool run from a laptop, and a
+    second billing path is a footgun — an API key sitting in the environment used to mean a run
+    silently charged credits. Accepted consequence: **a host cannot run the pipeline**, so the
+    Render deployment is now explicitly serve-and-publish only (it never calls Claude, so it also
+    needs no secret beyond the optional Google Books key).
+  - **Three CLI-backend bugs found by actually running a real-sized group** (6 members, 73 books
+    — everything before had been validated at M30's 2 members / 17 books, which hid all three):
+    1. **`CLAUDE_CODE_MAX_OUTPUT_TOKENS` is not honoured** (verified on CLI 2.1.219): a call
+       asking for 1024 emitted 4096 output tokens, the CLI's own default, and there is no
+       `--max-tokens` flag. Anything whose JSON exceeds ~4096 output tokens truncates and returns
+       `is_error`. **Stage 3 asks for 48000 and therefore cannot complete for a real group — this
+       is an open blocker, and the fix is to batch Stage 3.** Documented on `runCli`.
+    2. **CLI failures were read from `stderr`, which the CLI leaves empty** — it reports its own
+       errors (usage limits, bad model, auth) on STDOUT. Every failure surfaced as
+       `Command failed: claude -p …` with the entire prompt echoed back and no reason. Now falls
+       back to stdout; this is what made (1) diagnosable at all.
+    3. **`--effort` was never passed**, so every quality preset silently ran at the CLI's default
+       effort — the same footgun M25 removed from the UI. Now passed unconditionally (`cliModel`
+       maps haiku onto sonnet, and every model the CLI serves accepts effort).
+  - Not done, worth doing: the CLI now has `--json-schema` for native structured output, which
+    would retire `extractJsonObject` / `escapeControlCharsInStrings` and their 8 tests.
+
 ## Operating the live app
 
 Run in production on Render's free plan via the `render.yaml` blueprint (docker, health check,

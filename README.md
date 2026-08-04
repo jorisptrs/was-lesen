@@ -46,9 +46,9 @@ you, fork it and make it yours — that's the best outcome I can offer. If you w
 form, and running your first cycle. Budget about half an hour, most of it spent writing your
 form questions.
 
-The short version: get an [Anthropic API key](https://console.anthropic.com/), deploy to
-[Render](https://render.com/) from the included blueprint, set a passphrase, make a form, upload
-the CSV, hit run.
+The short version: install the [`claude` CLI](https://docs.claude.com/en/docs/claude-code/overview)
+and log in, run the app locally, make a form, upload the CSV, hit run. Deploying to
+[Render](https://render.com/) is optional and only needed if you want a link your group can open.
 
 ## Stack
 
@@ -66,7 +66,7 @@ selection maths → embeddings, clustering, and 2D layout.
 
 ```bash
 npm install
-cp .env.example .env   # then set ANTHROPIC_API_KEY
+cp .env.example .env   # no keys needed — Claude runs through your logged-in `claude` CLI
 npm run dev            # server on :3000, client on :5173 proxying /api → :3000
 ```
 
@@ -79,9 +79,8 @@ npm run build       # build the client
 npm start           # run the server (serves the built client if present)
 ```
 
-The `cp .env.example .env` step above matters before `npm test`: config validation is fail-fast,
-so without a `.env` the server-side suites exit with `ANTHROPIC_API_KEY: required`. The copied
-example is enough — the tests never make a real API call.
+No secrets are required: Claude is reached through your logged-in `claude` CLI, not an API key,
+so a fresh clone runs the full suite with no configuration at all.
 
 Requires Node ≥ 20 (developed on Node 24).
 
