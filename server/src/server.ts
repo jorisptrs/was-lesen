@@ -6,12 +6,14 @@ import express from "express";
 import { config } from "./config";
 import { handleHealth } from "./routes/health";
 import { handleNormalize } from "./routes/normalize";
+import { handleDeletePastRead, handleListPastReads, handleSavePastReads } from "./routes/pastReads";
 import { handlePreview } from "./routes/preview";
 import { handleResolve } from "./routes/resolve";
 import { handleRun } from "./routes/run";
-import { handleAuthCheck, handleCurrent, handlePublish } from "./routes/publish";
-import { constantTimeEqual, isOpenApiPath } from "./domain/auth";
-import { checkRateLimit } from "./ratelimit/rateLimiter";
+import { handleSuggestCheck, handleSuggestRescore } from "./routes/suggest";
+import { handleCurrent, handlePublish } from "./routes/publish";
+import { claudeAvailable } from "./claude/available";
+import { isSsePath } from "./sse/channel";
 
 const app = express();
 // Express semantics trap: a NUMBER is a hop count, a STRING is a trusted-address list — the
@@ -21,35 +23,40 @@ if (config.TRUST_PROXY) {
   const tp = config.TRUST_PROXY;
   app.set("trust proxy", /^\d+$/.test(tp) ? Number(tp) : tp === "true" ? true : tp);
 }
-// Compress responses, but never the SSE stream (compression buffers it and breaks streaming).
-app.use(compression({ filter: (req, res) => (req.path === "/api/run" ? false : compression.filter(req, res)) }));
+// Compress responses, but never an SSE stream (compression buffers it and breaks streaming).
+// The exclusion is a LIST (`sse/channel.ts`), not one hardcoded path — /api/run was the only
+// stream until M35 added /api/normalize, and a missed entry degrades silently.
+app.use(compression({ filter: (req, res) => (isSsePath(req.path) ? false : compression.filter(req, res)) }));
 app.use(express.json({ limit: "512kb" }));
 
-// App passphrase gate: with APP_PASSPHRASE set, every /api call except the open viewer paths
-// needs the organizer's passphrase header. Failed attempts get their own bucket so the
-// passphrase can't be brute-forced through the open door.
-app.use((req, res, next) => {
-  if (!config.APP_PASSPHRASE || !req.path.startsWith("/api") || isOpenApiPath(req.path)) return next();
-  if (constantTimeEqual(req.get("x-app-passphrase"), config.APP_PASSPHRASE)) return next();
-  const rl = checkRateLimit(`auth:${req.ip ?? "unknown"}`, 20);
-  if (!rl.ok) {
-    res.setHeader("Retry-After", String(rl.retryAfter));
-    res.status(429).json({ error: `Too many attempts — try again in ${rl.retryAfter}s.` });
-    return;
-  }
-  res.status(401).json({ error: "Locked — unlock with the organizer passphrase." });
-});
-
 // API routes (registered before the SPA fallback so /api/* is never swallowed).
+//
+// There is no passphrase gate. Instead the two roles are separated by what the machine can
+// actually DO: Claude runs only through the local `claude` login, so a HOST cannot run the
+// pipeline, and every organizer route below is simply NOT REGISTERED there. That is stronger
+// than a gate and needs no secret at all — the endpoints don't exist rather than being guarded.
+// A host still accepts a publish (that is how the map gets there), open and rate-limited: the
+// deployment is meant to need zero configuration.
 app.get("/api/health", handleHealth);
-app.post("/api/run/preview", handlePreview);
-app.post("/api/normalize", handleNormalize);
-app.post("/api/resolve", handleResolve);
-app.post("/api/run", handleRun);
 // The published run: the main page shows it to everyone; publishing replaces it.
 app.get("/api/current", handleCurrent);
 app.post("/api/publish", handlePublish);
-app.get("/api/auth-check", handleAuthCheck);
+
+if (claudeAvailable()) {
+  app.post("/api/run/preview", handlePreview);
+  app.post("/api/normalize", handleNormalize);
+  app.post("/api/resolve", handleResolve);
+  app.post("/api/run", handleRun);
+  // Adding books is two steps: a cheap catalog check per title, then one scoring pass over the
+  // whole pool (see pipeline/suggest).
+  app.post("/api/suggest/check", handleSuggestCheck);
+  app.post("/api/suggest/rescore", handleSuggestRescore);
+  // The group's reading history — laptop-local by nature: a host's copy would sit on an
+  // ephemeral disk that no run ever reads.
+  app.get("/api/past-reads", handleListPastReads);
+  app.post("/api/past-reads", handleSavePastReads);
+  app.delete("/api/past-reads", handleDeletePastRead);
+}
 
 // In production, serve the built client from this same process. In dev this directory
 // doesn't exist and Vite serves the client instead (proxying /api here).
@@ -63,6 +70,6 @@ if (existsSync(clientDist)) {
 app.listen(config.PORT, () => {
   console.log(
     `[satisfying-books] listening on http://localhost:${config.PORT} ` +
-      `(model=${config.ANTHROPIC_MODEL}, effort=${config.ANTHROPIC_EFFORT})`,
+      `(${claudeAvailable() ? `organizer: model=${config.ANTHROPIC_MODEL}, effort=${config.ANTHROPIC_EFFORT}` : "viewer only: no `claude` login, serves and publishes"})`,
   );
 });

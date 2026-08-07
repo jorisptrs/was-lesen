@@ -45,7 +45,7 @@ export async function runPipeline(
 
   let candidates;
   try {
-    candidates = await generateCandidates(run, signal);
+    candidates = await generateCandidates(run, signal, (p) => send({ type: "lens_progress", ...p }));
   } catch (err) {
     if (signal.aborted) return;
     emitError(send, 1, err);
@@ -111,7 +111,7 @@ export async function runPipeline(
 
   let result: SelectionResult;
   try {
-    result = await generateScores(run, kept, signal);
+    result = await generateScores(run, kept, signal, (scored, total) => send({ type: "score_progress", scored, total }));
   } catch (err) {
     if (signal.aborted) return;
     emitError(send, 3, err);

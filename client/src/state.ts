@@ -25,6 +25,9 @@ export interface VerifyCounts {
   dropped: number;
 }
 
+/** Per-lens Stage-1 progress, keyed by lens name (the lenses run in parallel). */
+export type LensCounts = Record<string, { lines: number; quota: number; state: "running" | "done" | "failed" }>;
+
 export interface RunState {
   status: RunStatus;
   runId: string | null;
@@ -33,7 +36,9 @@ export interface RunState {
   effort: Effort | null;
   soloMode: boolean;
   books: BookView[];
+  lenses: LensCounts;
   verify: VerifyCounts | null;
+  scoreProgress: { scored: number; total: number } | null;
   scored: ScoredState | null;
   kept: number | null;
   durationMs: number | null;
@@ -49,7 +54,9 @@ export const initialRunState: RunState = {
   effort: null,
   soloMode: false,
   books: [],
+  lenses: {},
   verify: null,
+  scoreProgress: null,
   scored: null,
   kept: null,
   durationMs: null,
@@ -100,6 +107,11 @@ function applyEvent(state: RunState, event: SseEvent): RunState {
         effort: event.effort,
         soloMode: event.soloMode,
       };
+    case "lens_progress":
+      return {
+        ...state,
+        lenses: { ...state.lenses, [event.lens]: { lines: event.lines, quota: event.quota, state: event.state } },
+      };
     case "candidates":
       return {
         ...state,
@@ -117,6 +129,8 @@ function applyEvent(state: RunState, event: SseEvent): RunState {
         verify: event.progress,
         books: state.books.map((b) => (b.id === event.id ? mergeVerify(b, event) : b)),
       };
+    case "score_progress":
+      return { ...state, scoreProgress: { scored: event.scored, total: event.total } };
     case "scored":
       return {
         ...state,

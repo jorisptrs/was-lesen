@@ -57,8 +57,11 @@ notes). Clean each one for use in a downstream prompt: remove greetings, thanks,
 emoji, and meta-comments about the form or the organizer ("thank you for organising!", ":)",
 "hope this is what you meant"); KEEP every content-bearing statement in the person's own words —
 do not summarize, rephrase, or reorder. If a rule line starts with a member-name prefix
-("Mara: …"), KEEP the prefix — it says whose rule it is. If nothing content-bearing remains,
-return an empty string for that item. Output them as `paragraphs` and `rules`, one string per
-input, in order.
+("Sarah: …"), KEEP the prefix — it says whose rule it is. If nothing content-bearing remains,
+return an empty string for that item.
 
-Output JSON only, matching the provided schema.
+Output one line per numbered input item, following the output instructions, echoing that item's
+number as `index`: every numbered entry gets a `{"type":"entry", index, original, kind, title,
+author, authorFromText}` line, every numbered paragraph a `{"type":"paragraph", index, text}`
+line, and every numbered rule a `{"type":"rule", index, text}` line. Exactly one line per input
+item — none skipped, none merged.

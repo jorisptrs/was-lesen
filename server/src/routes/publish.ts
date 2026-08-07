@@ -1,13 +1,28 @@
 import type { Request, Response } from "express";
 import { validateSavedRun } from "@sb/shared";
+import { claudeAvailable } from "../claude/available";
 import { config } from "../config";
 import { getPublishedRun, publishRun } from "../publishedRun";
+import { checkRateLimit } from "../ratelimit/rateLimiter";
 
-/** POST /api/publish — make this run THE map the main page shows (gated by the app
- * passphrase middleware; the group browses it and votes in person). With PUBLISH_TARGET set
- * (the laptop workflow), the run is forwarded to the hosted app instead — run locally on the
- * subscription, appear online in one click. */
+/**
+ * POST /api/publish — make this run THE map the main page shows. On the laptop (PUBLISH_TARGET
+ * set) it also forwards to the hosted app, so a run computed on the subscription appears online
+ * in one click.
+ *
+ * Deliberately OPEN — no credential anywhere in this app. The deployment is meant to need zero
+ * configuration, and the accepted trade is that a link-holder could replace the map, which the
+ * organizer undoes by republishing. Nothing here leaks or costs money; it's rate-limited so it
+ * can't be hammered.
+ */
 export async function handlePublish(req: Request, res: Response): Promise<void> {
+  const rl = checkRateLimit(`publish:${req.ip ?? "unknown"}`, 30);
+  if (!rl.ok) {
+    res.setHeader("Retry-After", String(rl.retryAfter));
+    res.status(429).json({ error: `Too many publishes — try again in ${rl.retryAfter}s.` });
+    return;
+  }
+
   let run;
   try {
     run = validateSavedRun((req.body ?? {}).run);
@@ -20,14 +35,20 @@ export async function handlePublish(req: Request, res: Response): Promise<void> 
     return;
   }
 
-  if (config.PUBLISH_TARGET) {
+  // Keep a local copy ALWAYS, even when forwarding. Without this the laptop is the one machine
+  // that never keeps what it produced: `publish` returned early on the remote path, the hosted
+  // slot lives on an ephemeral disk, and a map could exist in exactly one place. Writing here
+  // first also means a failed forward still leaves the run recoverable.
+  const published = publishRun(run);
+
+  // Only the WORKSHOP forwards. Keying this on `claudeAvailable` too makes the two roles
+  // mutually exclusive by construction — a host that somehow inherited a PUBLISH_TARGET would
+  // otherwise relay a publish straight back out, which is a loop, not a feature.
+  if (config.PUBLISH_TARGET && claudeAvailable()) {
     try {
       const remote = await fetch(`${config.PUBLISH_TARGET.replace(/\/$/, "")}/api/publish`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(config.PUBLISH_PASSPHRASE ? { "X-App-Passphrase": config.PUBLISH_PASSPHRASE } : {}),
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ run }),
         signal: AbortSignal.timeout(30_000),
       });
@@ -37,7 +58,7 @@ export async function handlePublish(req: Request, res: Response): Promise<void> 
         return;
       }
       const data = (await remote.json()) as { publishedAt?: string };
-      res.json({ ok: true, publishedAt: data.publishedAt, publishedTo: config.PUBLISH_TARGET });
+      res.json({ ok: true, publishedAt: data.publishedAt ?? published.publishedAt, publishedTo: config.PUBLISH_TARGET });
       return;
     } catch (err) {
       res.status(502).json({ error: `Could not reach ${config.PUBLISH_TARGET}: ${err instanceof Error ? err.message : "network error"}` });
@@ -45,7 +66,6 @@ export async function handlePublish(req: Request, res: Response): Promise<void> 
     }
   }
 
-  const published = publishRun(run);
   res.json({ ok: true, publishedAt: published.publishedAt });
 }
 
@@ -72,8 +92,3 @@ export function handleCurrent(_req: Request, res: Response): void {
   res.json({ run: redacted, publishedAt: published.publishedAt });
 }
 
-/** GET /api/auth-check — a gated no-op: 200 means the caller's passphrase works (or the
- * gate is off). The client probes this on boot to decide locked vs organizer view. */
-export function handleAuthCheck(_req: Request, res: Response): void {
-  res.json({ ok: true });
-}

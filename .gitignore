@@ -9,9 +9,6 @@ coverage/
 # Tally exports contain personal data — never commit
 *.csv
 
-# Saved/published runs carry member names and paragraphs — never commit one by accident
-*.json
-!package.json
-!package-lock.json
-!tsconfig.json
-!tsconfig.base.json
+# Personal Obsidian vaults staged here temporarily — never commit
+/Joris Vault/
+/Obsidian vault/

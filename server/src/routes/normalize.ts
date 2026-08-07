@@ -2,38 +2,46 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Request, Response } from "express";
+import type { NormalizeEvent } from "@sb/shared";
 import { ClaudeError, structuredCall } from "../claude/client";
-import { NORMALIZE_JSON_SCHEMA, NormalizeSchema } from "../claude/schemas";
+import { NORMALIZE_LINE_JSON_SCHEMA, NormalizeLineSchema } from "../claude/schemas";
 import { config } from "../config";
+import {
+  normalizeKeys,
+  normalizeTotal,
+  reconcileNormalize,
+  renderNormalizeUser,
+  resolveNormalizeInput,
+} from "../domain/normalize";
 import { checkRateLimit } from "../ratelimit/rateLimiter";
+import { openSse } from "../sse/channel";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const NORMALIZE_SYSTEM = readFileSync(resolve(here, "../prompts/normalize.system.md"), "utf8").trim();
 
-const MAX_ENTRIES = 200; // ~10-person group × up to ~15 books each, comfortably in one call
-const MAX_TEXTS = 24;
-
-const cleanStrings = (v: unknown, cap: number, maxLen: number): string[] =>
-  Array.isArray(v)
-    ? v.filter((x): x is string => typeof x === "string").map((x) => x.slice(0, maxLen)).slice(0, cap)
-    : [];
-
 /**
- * POST /api/normalize — Stage 0: clean up raw human-typed intake text via one cheap Claude call.
- * Body `{entries: string[], paragraphs?: string[], rules?: string[]}`:
+ * POST /api/normalize → SSE stream. Stage 0: clean up raw human-typed intake text via one Claude
+ * call. Body `{entries: string[], paragraphs?: string[], rules?: string[]}`:
  *  - `entries` (book-list strings) → `{original, kind, title, author, authorFromText}` each;
  *  - `paragraphs` / `rules` → the same texts with pleasantries/meta removed, in order.
- * Used at CSV import so corrections land in the editable cards BEFORE a run. Failures are the
- * client's cue to proceed with the raw strings — this endpoint is a nice-to-have, never a gate.
+ *
+ * It streams because it is SLOW: a 9-member CSV took 62–75s of blocking spinner (M34 notes).
+ * `normalize_progress` ticks off the growing output file, then exactly one terminal event —
+ * `normalize_result` or `normalize_error`. Failures are the client's cue to proceed with the raw
+ * strings: this endpoint is a nice-to-have, never a gate.
+ *
+ * Granularity caveat (measured, M35): normalize lines are SHORT, so ~70 of them still fit in one
+ * response and the agent writes the whole file in a single turn — the count then jumps 0 → n at
+ * the end rather than climbing. Stage 3 ticks properly because its two-paragraph summaries can't
+ * fit one response. So the count is a real signal, not a smooth one, and the client also shows
+ * elapsed time. Forcing groups here would buy a nicer bar for several extra turns of latency.
  */
 export async function handleNormalize(req: Request, res: Response): Promise<void> {
-  const body = (req.body ?? {}) as { entries?: unknown; paragraphs?: unknown; rules?: unknown };
-  const entries = Array.isArray(body.entries)
-    ? body.entries.filter((e): e is string => typeof e === "string" && e.trim().length > 0).slice(0, MAX_ENTRIES)
-    : [];
-  const paragraphs = cleanStrings(body.paragraphs, MAX_TEXTS, 2000);
-  const rules = cleanStrings(body.rules, MAX_TEXTS, 500);
-  if (entries.length === 0 && paragraphs.length === 0 && rules.length === 0) {
+  const input = resolveNormalizeInput(req.body);
+  const total = normalizeTotal(input);
+  // Validation and rate-limiting happen BEFORE the stream opens, so these stay ordinary HTTP
+  // statuses — once the stream is open, every outcome is an SSE event.
+  if (total === 0) {
     res.status(400).json({ error: "Provide non-empty `entries`, `paragraphs`, or `rules` arrays." });
     return;
   }
@@ -46,49 +54,45 @@ export async function handleNormalize(req: Request, res: Response): Promise<void
     return;
   }
 
-  const section = (label: string, xs: string[]): string =>
-    xs.length ? `${label}:\n${xs.map((e, i) => `${i + 1}. ${e}`).join("\n")}` : "";
-  const user = [section("Entries", entries), section("Paragraphs", paragraphs), section("Rules", rules)]
-    .filter(Boolean)
-    .join("\n\n");
+  // Abort the CLI call when the organizer closes the tab mid-import. Use res "close", not req
+  // "close": for a buffered POST body the latter fires as soon as the body is read.
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
 
+  const sse = openSse<NormalizeEvent>(res);
+  // Announce the size immediately: the first real tick can be 40s away (see below), and "0/72"
+  // from the first frame is what tells the organizer the request was understood.
+  sse.send({ type: "normalize_progress", done: 0, total });
   try {
-    const out = await structuredCall({
+    const lines = await structuredCall({
       system: NORMALIZE_SYSTEM,
-      user,
+      user: renderNormalizeUser(input),
       model: config.NORMALIZE_MODEL, // optional stronger model; undefined → ANTHROPIC_MODEL
-      maxTokens: 10240, // entries + echoed cleaned paragraphs; streamed, so long is safe
       effort: config.ANTHROPIC_EFFORT,
-      jsonSchema: NORMALIZE_JSON_SCHEMA,
-      validate: (raw) => NormalizeSchema.parse(raw),
+      lineSchema: NORMALIZE_LINE_JSON_SCHEMA,
+      parseLine: (raw) => NormalizeLineSchema.parse(raw),
+      keyOf: (l) => `${l.type}:${l.index}`,
+      expectedKeys: normalizeKeys(input),
+      followUpUser: (missing) =>
+        `${renderNormalizeUser(input, new Set(missing))}\n\n(Process ONLY these items, keeping the numbering shown.)`,
+      expectedLines: total,
+      // Capped at the total: the recovery call's offset can push the raw count past it, and a
+      // counter reading "94/88" reads like a bug to the person watching it.
+      onLines: (done) => sse.send({ type: "normalize_progress", done: Math.min(done, total), total }),
+      signal: controller.signal,
     });
-    // Reconcile by the echoed `original` (models occasionally drop an entry mid-list, which
-    // would corrupt purely positional alignment): consume matching echoes in order; an input
-    // with no echo left degrades to as-typed instead of failing the whole cleanup. Duplicates
-    // are handled by queueing per original.
-    const queues = new Map<string, (typeof out.entries)[number][]>();
-    for (const e of out.entries) {
-      const key = e.original.trim();
-      const q = queues.get(key) ?? [];
-      q.push(e);
-      queues.set(key, q);
-    }
-    let missed = 0;
-    const reconciled = entries.map((original) => {
-      const e = queues.get(original.trim())?.shift();
-      if (e) return { ...e, original };
-      missed++;
-      return { original, kind: "book" as const, title: original, author: "", authorFromText: false };
-    });
-    if (missed > 0) console.warn(`[normalize] ${missed} entr(ies) had no echo — left as typed`);
-    res.json({
-      entries: reconciled,
-      // Tolerant on the text arrays: a short return just means those items stay as typed.
-      paragraphs: out.paragraphs.slice(0, paragraphs.length),
-      rules: out.rules.slice(0, rules.length),
-    });
+
+    const { result, missed } = reconcileNormalize(input, lines);
+    if (missed > 0) console.warn(`[normalize] ${missed} entr(ies) had no line — left as typed`);
+    sse.send({ type: "normalize_result", result });
   } catch (err) {
-    const message = err instanceof ClaudeError ? err.message : "Normalization failed.";
-    res.status(502).json({ error: message });
+    if (!controller.signal.aborted) {
+      const message = err instanceof ClaudeError ? err.message : "Normalization failed.";
+      sse.send({ type: "normalize_error", message });
+    }
+  } finally {
+    sse.close();
   }
 }

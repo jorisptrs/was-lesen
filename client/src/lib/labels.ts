@@ -43,6 +43,13 @@ export function provenanceBadge(book: Pick<ScoredCard, "provenance" | "nominated
       info: `${who} names this among the books they've liked — personally vouched; they may be up for a re-read.`,
     };
   }
+  if (book.provenance === "organizer_add") {
+    // Unattributed stays deliberately neutral: naming an owner for a book someone merely said
+    // out loud is the misattribution this badge exists to prevent.
+    return book.nominatedBy
+      ? { label: `Added for ${book.nominatedBy}`, info: `Typed in during the session on ${book.nominatedBy}'s behalf.` }
+      : { label: "Added in the room", info: "Typed in during the session — nobody in particular is behind it." };
+  }
   return { label: "Claude pick", info: "Nominated by Claude from the group's tastes — no member suggested it." };
 }
 

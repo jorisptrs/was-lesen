@@ -41,7 +41,6 @@ const schema = z.object({
   // ~1k tokens (~$0.005/run) — the one place a stronger model is worth it by default.
   FILTER_MODEL: z.string().min(1).default("claude-sonnet-5"),
   ANTHROPIC_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("low"),
-  MAX_EFFORT_PASSPHRASE: z.string().optional(),
   PORT: z.coerce.number().int().positive().default(3000),
   TRUST_PROXY: z.string().optional(),
   OPENLIBRARY_USER_AGENT: z.string().min(1).default("SatisfyingBooks/0.1"),
@@ -55,16 +54,9 @@ const schema = z.object({
   EMBEDDINGS_API_KEY: z.string().optional(),
   // Optional: raises the Google Books quota (the keyless ~1000/day is plenty for group use).
   GOOGLE_BOOKS_API_KEY: z.string().optional(),
-  // Publish forwarding: when set, a local publish is sent to THIS hosted app instead of the
-  // local slot — run on the laptop (subscription), appear online in one click. The
-  // passphrase is the hosted app's APP_PASSPHRASE (kept separate so setting it locally
-  // doesn't lock the local app itself).
+  // Publish forwarding: set on the LAPTOP, it sends a publish to the hosted app instead of only
+  // the local slot — run on the subscription, appear online in one click.
   PUBLISH_TARGET: z.string().url().optional(),
-  PUBLISH_PASSPHRASE: z.string().optional(),
-  // With a passphrase set, the whole API except /api/health and /api/current is
-  // organizer-only: visitors see the latest published map read-only, and only the organizer
-  // can start runs or publish. Unset (e.g. local dev) = everything open.
-  APP_PASSPHRASE: z.string().optional(),
   NODE_ENV: z.string().default("development"),
 });
 

@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Effort, VerifiedBook } from "@sb/shared";
 import { structuredCall } from "../claude/client";
-import { FILTER_JSON_SCHEMA, FilterSchema } from "../claude/schemas";
+import { FILTER_LINE_JSON_SCHEMA, FilterLineSchema } from "../claude/schemas";
 import { config } from "../config";
 import { assembleFilterUser } from "../prompts/assemble";
 
@@ -29,21 +29,24 @@ export async function filterByConstraints(
 ): Promise<FilterResult> {
   if (!constraints?.trim() || books.length === 0) return { kept: books, removed: [] };
   try {
-    const out = await structuredCall({
+    const violations = await structuredCall({
       system: FILTER_SYSTEM,
       user: assembleFilterUser(constraints, books),
       model: config.FILTER_MODEL, // Sonnet by default — see config.ts for why
-      maxTokens: 1024,
       effort,
-      jsonSchema: FILTER_JSON_SCHEMA,
-      validate: (raw) => FilterSchema.parse(raw),
+      lineSchema: FILTER_LINE_JSON_SCHEMA,
+      parseLine: (raw) => FilterLineSchema.parse(raw),
+      keyOf: (v) => v.id,
+      // No expected keys: violations are a SUBSET, so a clean run that writes nothing is the
+      // normal "no book breaks a rule" answer, not a failure to fill in.
+      zeroLinesOk: true,
       signal,
     });
     const byId = new Map(books.map((b) => [b.id, b]));
     // Guard against self-contradicting or hedged verdicts (observed: a book listed as a
     // violation whose own reason concluded "no violation") — a removal must be definite.
     const hedged = /no violation|not a violation|which \w+ accepts|acceptable|borderline|\bmay\b|\bmight\b|possibly/i;
-    const removed = out.violations
+    const removed = violations
       .filter((v) => byId.has(v.id))
       .filter((v) => {
         if (hedged.test(v.reason)) {

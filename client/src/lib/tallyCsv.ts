@@ -3,7 +3,9 @@
 // only the relevant fields still works. The output goes into the members textarea — transparent
 // and editable, reusing the whole existing pipeline.
 
-import type { PastRead } from "@sb/shared";
+import { type PastRead, parseCsv } from "@sb/shared";
+
+export { parseCsv };
 
 export interface TallyMember {
   name: string;
@@ -32,7 +34,7 @@ export function stripSkippedConstraints(constraints: string, skippedNames: strin
 export interface PaceStats {
   perMember: { name: string; low: number; high: number }[];
   min: number; // slowest reader's lower bound
-  avg: number; // mean of each member's range-average — the planning default
+  median: number; // median of each member's range-midpoint — the planning default
   max: number; // fastest reader's upper bound
   slowest: string; // name of the member with the lowest lower bound
 }
@@ -97,48 +99,6 @@ export function parseMembersText(text: string): TallyMember[] {
   });
 }
 
-/** RFC-4180-ish CSV parser: quoted fields, "" escapes, embedded newlines and commas. */
-export function parseCsv(text: string): string[][] {
-  const s = text.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let quoted = false;
-
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i];
-    if (quoted) {
-      if (c === '"') {
-        if (s[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          quoted = false;
-        }
-      } else {
-        field += c;
-      }
-    } else if (c === '"') {
-      quoted = true;
-    } else if (c === ",") {
-      row.push(field);
-      field = "";
-    } else if (c === "\n") {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = "";
-    } else {
-      field += c;
-    }
-  }
-  if (field.length > 0 || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-  return rows;
-}
-
 const findCol = (header: string[], test: (h: string) => boolean): number =>
   header.findIndex((h) => test(h.toLowerCase().trim()));
 
@@ -186,81 +146,33 @@ export function buildMembersText(members: TallyMember[]): string {
 }
 
 /**
- * Which Tally form produced this CSV: the intake (members) or the post-read feedback form.
- * The feedback form's headers carry a book column plus finished/satisfaction questions.
+ * Is this the post-read FEEDBACK export rather than the intake one?
+ *
+ * The feedback form is no longer imported — past reads are typed into the Past reads panel, which
+ * is the same information without a second Tally form, a second parser, and a per-member shape
+ * that had to be collapsed to a group note anyway. This check survives only to recognise the old
+ * file and say so, instead of parsing it as an intake and inventing members out of feedback rows.
  */
-export function detectCsvKind(csvText: string): "members" | "feedback" {
+export function isFeedbackCsv(csvText: string): boolean {
   const header = (parseCsv(csvText)[0] ?? []).map((h) => h.toLowerCase());
   const has = (t: string) => header.some((h) => h.includes(t));
-  return has("book") && (has("finish") || has("satisf") || has("rating")) ? "feedback" : "members";
-}
-
-/**
- * Parse the post-read feedback CSV (one row per member) into `PastRead`s grouped by book.
- * Expected columns (matched by header keywords): name, "which book…", "did you finish…",
- * "how satisfied… (1–5)", "one line of feedback", and optionally "did this book change your
- * mind…" (merged into the note so Stage 3 sees which books actually moved beliefs).
- */
-export function parseFeedbackCsv(csvText: string): PastRead[] {
-  const rows = parseCsv(csvText);
-  if (rows.length < 2) throw new Error("That CSV has no responses.");
-  const header = rows[0]!;
-  const col = {
-    name: findCol(header, (h) => h.includes("name")),
-    book: findCol(header, (h) => h.includes("book")),
-    finished: findCol(header, (h) => h.includes("finish")),
-    rating: findCol(header, (h) => h.includes("satisf") || h.includes("rating")),
-    note: findCol(header, (h) => h.includes("feedback") || h.includes("one line")),
-    mind: findCol(header, (h) => h.includes("change your mind") || h.includes("belief")),
-  };
-  if (col.book < 0) throw new Error("That CSV doesn't look like a feedback export (no book column).");
-  const get = (r: string[], i: number): string => (i >= 0 ? (r[i] ?? "").trim() : "");
-
-  const byBook = new Map<string, { title: string; ratings: number[]; done: number; total: number; notes: PastRead["notes"] }>();
-  rows.slice(1).forEach((r, idx) => {
-    const title = get(r, col.book);
-    if (!title) return;
-    const key = title.toLowerCase();
-    if (!byBook.has(key)) byBook.set(key, { title, ratings: [], done: 0, total: 0, notes: [] });
-    const b = byBook.get(key)!;
-    b.total++;
-    if (/^(finished|mostly)/i.test(get(r, col.finished))) b.done++;
-    const rating = Number((get(r, col.rating).match(/[1-5]/) ?? [])[0]);
-    if (rating >= 1 && rating <= 5) b.ratings.push(rating);
-    const mind = get(r, col.mind);
-    const note = [get(r, col.note), isNoAnswer(mind) ? "" : `Changed my mind: ${mind}`]
-      .filter(Boolean)
-      .join(" — ");
-    const member = get(r, col.name) || `Member ${idx + 1}`;
-    if (note) b.notes!.push({ member, rating: rating >= 1 && rating <= 5 ? rating : null, note });
-  });
-  if (byBook.size === 0) throw new Error("No usable feedback rows found in that CSV.");
-
-  return [...byBook.values()].map((b) => ({
-    title: b.title,
-    finished: `${b.done}/${b.total} finished`,
-    avgRating: b.ratings.length ? Math.round((b.ratings.reduce((s, x) => s + x, 0) / b.ratings.length) * 10) / 10 : null,
-    notes: b.notes,
-  }));
-}
-
-/** Merge newly imported past reads into the existing set (same book → the new import wins). */
-export function mergePastReads(prev: PastRead[], imported: PastRead[]): PastRead[] {
-  const out = new Map(prev.map((p) => [p.title.toLowerCase(), p]));
-  for (const p of imported) out.set(p.title.toLowerCase(), p);
-  return [...out.values()];
+  return has("book") && (has("finish") || has("satisf") || has("rating"));
 }
 
 /** Aggregate reported reading budgets into display stats — recomputable from any subset,
  * so skipped members' budgets drop out of the suggestion and the graph. */
 export function paceStatsFrom(rows: { name: string; low: number; high: number }[]): PaceStats | null {
   if (rows.length === 0) return null;
-  const midpoints = rows.map((p) => (p.low + p.high) / 2);
+  // MEDIAN, not mean: one member who reads 600 pages a fortnight would otherwise drag the whole
+  // group's planning default up and halve every "N sessions" estimate on the map.
+  const midpoints = rows.map((p) => (p.low + p.high) / 2).sort((a, z) => a - z);
+  const mid = Math.floor(midpoints.length / 2);
+  const median = midpoints.length % 2 === 0 ? (midpoints[mid - 1]! + midpoints[mid]!) / 2 : midpoints[mid]!;
   const slowest = rows.reduce((m, p) => (p.low < m.low ? p : m));
   return {
     perMember: rows,
     min: Math.min(...rows.map((p) => p.low)),
-    avg: Math.round(midpoints.reduce((s, x) => s + x, 0) / midpoints.length),
+    median: Math.round(median),
     max: Math.max(...rows.map((p) => p.high)),
     slowest: slowest.name,
   };
@@ -329,7 +241,7 @@ export function tallyCsvToMembersText(csvText: string): TallyImport {
     members,
     text: buildMembersText(members),
     count: members.length,
-    paceHint: paceStats ? paceStats.avg : null,
+    paceHint: paceStats ? paceStats.median : null,
     paceStats,
     constraints: notes.join("\n"),
   };

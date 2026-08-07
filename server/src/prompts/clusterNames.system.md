@@ -9,4 +9,4 @@ Return exactly one label per group, in the same order. Each label:
 - is distinct from every other label — when two groups share a broad field, differentiate them
   by their specific angle (e.g. "Ethics" vs "Philosophy of Mind", not "Philosophy" twice).
 
-Output JSON only, matching the provided schema.
+Output one line per group, following the output instructions: the group's number as `group` and its name as `label`. Every group gets exactly one line.

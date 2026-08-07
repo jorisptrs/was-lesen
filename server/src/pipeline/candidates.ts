@@ -43,6 +43,25 @@ function seedList(
   return out;
 }
 
+/**
+ * The seeded pool a run starts from: everything the members themselves named, minus everything
+ * the group must not read again. Suggestions take precedence over liked books on overlap (an
+ * explicit ask outranks a taste echo), and exclusions beat both — a member re-suggesting a book
+ * someone marked don't-redo, or one the group already read together, must not slip in.
+ *
+ * ONE function because Stage 1 and the Show-Prompt preview must agree: when the preview seeded
+ * without the exclusion filter, it showed the model a book the real run would drop.
+ */
+export function seedPool(members: Member[], history: PastRead[] | undefined): Candidate[] {
+  const excluded = buildExclusionSet(members, history);
+  const suggestions = seedNominations(members).filter((c) => !isExcluded(c.title, excluded));
+  const suggestionKeys = new Set(suggestions.map((c) => titleKey(c)));
+  const loved = seedLoved(members).filter(
+    (c) => !isExcluded(c.title, excluded) && !suggestionKeys.has(titleKey(c)),
+  );
+  return [...suggestions, ...loved];
+}
+
 /** Normalized keys of every "already read" book — the hard exclusion set. Each title is added
  * with and without its leading article so "Scout Mindset" can't dodge "The Scout Mindset". */
 export function exclusionKeys(members: Member[]): Set<string> {

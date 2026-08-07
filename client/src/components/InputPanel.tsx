@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FocusEvent } from "react";
-import type { Pace, PastRead, RunQuality } from "@sb/shared";
+import type { Pace, PastReadRow, RunQuality } from "@sb/shared";
 import { sessionsForPages } from "../lib/sessions";
 import type { PaceStats, TallyMember } from "../lib/tallyCsv";
 import { PaceGraph } from "./PaceGraph";
+import { PastReadsPanel } from "./PastReadsPanel";
 
 /** Named presets the server maps to model + effort (never raw model strings from the client). */
 const QUALITIES: { value: RunQuality; label: string; hint: string }[] = [
@@ -22,9 +23,16 @@ interface Props {
   paceStats: PaceStats | null;
   quality: RunQuality;
   setQuality: (v: RunQuality) => void;
-  history: PastRead[];
-  onClearHistory: () => void;
+  /** The persistent past-reads store (organizer's laptop) — every run excludes and calibrates
+   * against it, so it is edited here rather than only arriving via a CSV. */
+  pastReads: PastReadRow[];
+  onAddPastRead: (row: Partial<PastReadRow>) => void;
+  onDeletePastRead: (title: string) => void;
+  pastReadsBusy: boolean;
+  pastReadsError: string | null;
   running: boolean;
+  /** A CSV import is mid-flight (Stage-0 cleanup / catalog matching) — see App's importStatus. */
+  importing: boolean;
   onRun: () => void;
   onCancel: () => void;
   onShowPrompt: () => void;
@@ -42,6 +50,18 @@ export function InputPanel(props: Props) {
   const csvRef = useRef<HTMLInputElement>(null);
   const [idx, setIdx] = useState(0);
   const [editing, setEditing] = useState(false);
+  // All three data sections (Members / Constraints / Past reads) are collapsed toggles: the
+  // drawer's resting face is counts + pace + Run, and detail is one click away.
+  const [membersOpen, setMembersOpen] = useState(false);
+  const [constraintsOpen, setConstraintsOpen] = useState(false);
+  // …except right after a CSV import: the cleaned cards ARE the import feedback, and reviewing
+  // them before Run is the documented veto point — so that one moment opens the deck itself.
+  const prevImporting = useRef(false);
+  useEffect(() => {
+    if (prevImporting.current && !props.importing && members.length > 0) setMembersOpen(true);
+    prevImporting.current = props.importing;
+  }, [props.importing, members.length]);
+  const constraintCount = constraints.split("\n").filter((l) => l.trim()).length;
 
   const cur = Math.min(idx, Math.max(0, members.length - 1));
   const member = members[cur];
@@ -80,11 +100,13 @@ export function InputPanel(props: Props) {
   return (
     <div className="input-form">
       <div className="panel-body">
-        <div className="field-head">
-          <span className="field-label">Members ({members.length})</span>
+        <div className="sec-head">
+          <button className="linkbtn" onClick={() => setMembersOpen((o) => !o)} aria-expanded={membersOpen}>
+            <span className="field-label">Members</span> {members.length}
+          </button>
         </div>
 
-        {members.length === 0 ? (
+        {membersOpen && (members.length === 0 ? (
           <div className="deck-empty muted">
             No members yet. <button className="linkbtn" onClick={addMember}>Add one</button> or Load CSV.
           </div>
@@ -177,30 +199,32 @@ export function InputPanel(props: Props) {
               </button>
             </div>
           </div>
+        ))}
+
+        <div className="sec-head">
+          <button className="linkbtn" onClick={() => setConstraintsOpen((o) => !o)} aria-expanded={constraintsOpen}>
+            <span className="field-label">Constraints</span> {constraintCount}
+          </button>
+        </div>
+        {constraintsOpen && (
+          <label className="field">
+            <textarea
+              value={constraints}
+              onChange={(e) => setConstraints(e.target.value)}
+              rows={3}
+              spellCheck={false}
+              placeholder="languages, formats, diversity of authors…"
+            />
+          </label>
         )}
 
-        <label className="field">
-          <span className="field-label">Constraints</span>
-          <textarea
-            value={constraints}
-            onChange={(e) => setConstraints(e.target.value)}
-            rows={3}
-            spellCheck={false}
-            placeholder="languages, formats, diversity of authors…"
-          />
-        </label>
-
-        {props.history.length > 0 && (
-          <div className="history-note">
-            <span className="field-label">Past reads</span>{" "}
-            {props.history
-              .map((h) => `${h.title}${h.avgRating != null ? ` (${h.avgRating}/5${h.finished ? `, ${h.finished}` : ""})` : ""}`)
-              .join(" · ")}{" "}
-            <button className="linkbtn" onClick={props.onClearHistory} title="Forget the loaded feedback">
-              clear
-            </button>
-          </div>
-        )}
+        <PastReadsPanel
+          rows={props.pastReads}
+          onAdd={props.onAddPastRead}
+          onDelete={props.onDeletePastRead}
+          busy={props.pastReadsBusy}
+          error={props.pastReadsError}
+        />
 
         <div className="settings">
           {paceStats && <PaceGraph stats={paceStats} />}
@@ -250,7 +274,7 @@ export function InputPanel(props: Props) {
         <div className="actions">
           {/* Quiet text links — Run is the only real button. */}
           <div className="quiet-actions">
-            <button className="linkbtn" onClick={() => csvRef.current?.click()}>
+            <button className="linkbtn" onClick={() => csvRef.current?.click()} disabled={props.importing}>
               load csv
             </button>
             <button className="linkbtn" onClick={() => fileRef.current?.click()}>
@@ -271,8 +295,16 @@ export function InputPanel(props: Props) {
             <button
               className="btn primary run"
               onClick={props.onRun}
-              disabled={members.every((m) => m.skip)}
-              title={members.every((m) => m.skip) ? "Everyone is skipped — include at least one member" : undefined}
+              // Running mid-import would send the raw, un-normalized lists — the import rewrites
+              // the cards in place and only lands them when it finishes.
+              disabled={members.every((m) => m.skip) || props.importing}
+              title={
+                props.importing
+                  ? "Cleaning up the import — one moment"
+                  : members.every((m) => m.skip)
+                    ? "Everyone is skipped — include at least one member"
+                    : undefined
+              }
             >
               Run
             </button>

@@ -31,17 +31,7 @@ export function parseBookList(raw: string): BookRef[] {
     .filter((b): b is BookRef => b !== null && b.title.length > 0);
 }
 
-/** Normalise a title for fuzzy matching / dedup / exclusion (lowercase, strip accents & punctuation). */
-export function normalizeTitle(s: string): string {
-  return s
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-/** A coarse dedup/exclusion key. Title-only for now; author is refined into matching at M3. */
-export function titleKey(ref: BookRef): string {
-  return normalizeTitle(ref.title);
-}
+// Title identity lives in @sb/shared so the client can key books identically (the suggest bar
+// rejects a duplicate before spending a call on it). Re-exported here so existing importers of
+// `domain/bookref` are unaffected.
+export { normalizeTitle, titleKey } from "@sb/shared";

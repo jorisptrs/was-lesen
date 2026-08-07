@@ -17,14 +17,14 @@ export function PaceGraph({ stats }: { stats: PaceStats }) {
   const bodyH = rows.length * rowH;
   const H = topH + bodyH + axisH;
   const short = (n: string) => (n.length > 11 ? `${n.slice(0, 10)}…` : n);
-  const avgX = x(stats.avg);
-  const avgAnchor = avgX > nameW + plotW * 0.7 ? "end" : "middle";
+  const medianX = x(stats.median);
+  const medianAnchor = medianX > nameW + plotW * 0.7 ? "end" : "middle";
 
   return (
     <svg className="pace-graph" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Reading pace by member">
-      <line className="pg-median" x1={avgX} x2={avgX} y1={topH} y2={topH + bodyH} />
-      <text className="pg-axis pg-median-lbl" x={avgX} y={topH - 4} textAnchor={avgAnchor}>
-        avg {stats.avg}
+      <line className="pg-median" x1={medianX} x2={medianX} y1={topH} y2={topH + bodyH} />
+      <text className="pg-axis pg-median-lbl" x={medianX} y={topH - 4} textAnchor={medianAnchor}>
+        median {stats.median}
       </text>
       {rows.map((m, i) => {
         const y = topH + i * rowH + rowH / 2;

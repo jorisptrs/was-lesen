@@ -12,15 +12,19 @@ services:
     healthCheckPath: /api/health
     # NOTE: no ANTHROPIC_API_KEY. Claude runs only through the local `claude` CLI, which a host
     # has no login for — so this deployment SERVES and PUBLISHES maps computed on your laptop.
-    # It never calls Claude, which is also why it costs nothing to leave running.
+    # It never calls Claude, which is also why it costs nothing to leave running. Because the
+    # binary is absent, the run/import/suggest routes are not even registered here (server.ts),
+    # so there is no organizer surface to guard and nothing to configure. Publishing is open:
+    # a link-holder could replace the map, and the organizer republishes in one click.
+    # NO SECRETS. Everything below has a value in this file, so the blueprint deploys as-is.
     envVars:
       - key: GOOGLE_BOOKS_API_KEY
         sync: false # optional but recommended (covers/pages for recent titles)
-      - key: ANTHROPIC_MODEL
-        value: claude-haiku-4-5
+      # No embeddings here either: clustering happens on the laptop, and the map arrives with
+      # its positions baked in. Skipping the model keeps this inside Render's 512MB.
       - key: EMBEDDINGS_PROVIDER
-        value: local
+        value: none
       - key: OPENLIBRARY_USER_AGENT
-        value: "WasLesen/0.1 (contact: you@example.com)" # put YOUR email here (Open Library asks for one)
+        value: "WasLesen/0.1 (contact: you@example.com)"
       - key: TRUST_PROXY
         value: "1" # Render terminates TLS in front of us; needed for the per-IP rate limit

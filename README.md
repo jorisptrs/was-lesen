@@ -1,54 +1,17 @@
 # Was lesen?
 
-A book-club companion. *("What to read?")*
+A book-club companion ("What to read?").
 
-Your reading group fills in a short form — a paragraph on what they feel like reading, books
-they'd suggest, books they've already read, books they love. **Claude nominates** a set of real,
-verified books. The group browses them together on a projector as a **cover map**, pulls
-favourites into a tray, argues, and votes by hand-raise in the room.
+A tool for a ~10-person reading group. Members paste short "what I want to read"
+paragraphs (plus books they'd suggest, have already read, or have loved); **Claude
+nominates** a set of real, verified books; the group browses them on a projector as a
+**cover map** (cover size = match score, color = cluster), pulls up to **3 finalists** into
+a tray, advocates, and votes by hand-raise in the room. Claude nominates; humans decide.
+Also usable solo at home.
 
-**Claude nominates; humans decide.** The tool never picks the book. It does the part that's
-tedious — reading eight paragraphs of taste, remembering who's already read what, finding books
-that serve more than one person — and then gets out of the way.
-
-<!-- A screenshot of the map goes well here. -->
-
-## What makes it not-a-chatbot
-
-- **Every title is verified against a real books API before it can appear.** Claude proposes;
-  Open Library and Google Books decide what exists. A book the catalogs can't find gets a
-  "needs verify" badge, and a missing cover doubles as a hallucination smell test. This is why
-  a cheap model works well here — the verifier carries the quality, not the model.
-- **The map is semantic.** Books are embedded, clustered on those embeddings, and positioned by
-  projecting them to 2D — so related books sit near each other and each cluster gets a name.
-  Nothing about the layout is hand-authored.
-- **The maths is not an LLM.** Which books make the cut, the per-member fit spread, the rank
-  badges — all pure, unit-tested server code. The model scores; the app decides, recountably.
-- **Nothing is persisted server-side.** You bring your data in each run and the group decides
-  live. One published map is stored so viewers have something to look at, and it's redacted to
-  what the screen actually shows.
-
-## Status: shared as-is
-
-This was built for **one** book club — mine — over about thirty milestones, and it's still
-shaped like that: it assumes one organizer, one group, one map at a time. It works, it's tested
-(150 unit tests), and it's been used for real. But it's a personal project published as an
-artifact, not a maintained product.
-
-So, honestly: **no support, no roadmap, no promises.** Issues and PRs may sit. If it's useful to
-you, fork it and make it yours — that's the best outcome I can offer. If you want to understand
-*why* it's built the way it is (including the several things I built and then deleted),
-[`docs/NOTES.md`](docs/NOTES.md) is the full decision record.
-
-## Set it up
-
-**→ [SETUP.md](SETUP.md)** walks through it end to end: API keys, one-click deploy, the intake
-form, and running your first cycle. Budget about half an hour, most of it spent writing your
-form questions.
-
-The short version: install the [`claude` CLI](https://docs.claude.com/en/docs/claude-code/overview)
-and log in, run the app locally, make a form, upload the CSV, hit run. Deploying to
-[Render](https://render.com/) is optional and only needed if you want a link your group can open.
+Nothing is persisted server-side — you bring your data in each run (paste, or load a saved
+JSON), and the group decides live. Every title is verified against a books API before it can
+appear, so a missing cover doubles as a hallucination smell test.
 
 ## Stack
 
@@ -57,33 +20,92 @@ and log in, run the app locally, make a form, upload the CSV, hit run. Deploying
   pipeline progress over SSE, and serves the built client in production.
 - **shared/** — TypeScript types shared by both (`@sb/shared`).
 
-One long-running process serves both the SPA and `/api`. A run goes: Stage 0 (normalize the
-pasted titles) → Stage 1 (three parallel nomination passes: champions, bridges, wildcards) →
-Stage 2 (verify against the books APIs) → a constraint filter → Stage 3 (per-member scoring) →
-selection maths → embeddings, clustering, and 2D layout.
+One long-running process serves both the SPA and `/api`. See `docs/NOTES.md` for
+architecture, decisions, and milestone status.
 
 ## Develop
 
 ```bash
 npm install
 cp .env.example .env   # no keys needed — Claude runs through your logged-in `claude` CLI
-npm run dev            # server on :3000, client on :5173 proxying /api → :3000
+npm run dev            # server on :3000, client (Vite) on :5173 proxying /api → :3000
 ```
 
 Open http://localhost:5173.
 
+## Other commands
+
 ```bash
 npm run typecheck   # tsc --noEmit across workspaces
-npm test            # vitest — 150 tests
+npm test            # vitest
 npm run build       # build the client
 npm start           # run the server (serves the built client if present)
 ```
 
-No secrets are required: Claude is reached through your logged-in `claude` CLI, not an API key,
-so a fresh clone runs the full suite with no configuration at all.
+## Deploy
 
-Requires Node ≥ 20 (developed on Node 24).
+One long-running process serves the built SPA and `/api` on a single port:
 
-## Licence
+```bash
+npm run build && npm start        # serves everything on $PORT (default 3000)
+```
 
-MIT — see [LICENSE](LICENSE).
+Or with Docker:
+
+```bash
+docker build -t satisfying-books .
+docker run --env-file .env -p 3000:3000 satisfying-books
+```
+
+For a hosted deployment set `TRUST_PROXY` so the per-IP rate limit sees real client IPs. The
+in-memory rate limit assumes a single instance (not serverless).
+
+**Claude runs on your subscription, never on API credits.** There is no `ANTHROPIC_API_KEY`:
+the server shells out to your logged-in [`claude` CLI](https://docs.claude.com/en/docs/claude-code/overview),
+so a run costs nothing beyond your Claude Pro/Max plan. The trade-off is deliberate — the
+pipeline only runs on a machine with a CLI login, so a hosted copy serves and publishes but
+cannot compute. The workflow: run locally → save the JSON → open the hosted app → unlock →
+load run → publish.
+
+The book map is positioned semantically by **embeddings**. By default `EMBEDDINGS_PROVIDER=local`
+runs a small model in-process (no key, no per-run cost, offline; adds onnxruntime to the image and
+downloads ~30 MB on first use). Set `EMBEDDINGS_PROVIDER=none` for a lighter image with a
+deterministic layout instead, or `voyage`/`openai` with `EMBEDDINGS_API_KEY` to use a hosted
+embedder. Embeddings are best-effort — any failure falls back to the deterministic layout.
+
+## Deploy for free
+
+The repo ships a `render.yaml` blueprint for [Render](https://render.com)'s free plan (verified
+July 2026: 512 MB / 0.1 CPU, no card, 750 h/month; sleeps after 15 min idle, ~1 min wake;
+ephemeral filesystem — the book-match cache resets on sleep, which is fine, it's best-effort):
+
+1. Render dashboard → **New → Blueprint** → pick this repo.
+2. Set `GOOGLE_BOOKS_API_KEY` when prompted (optional, but it fills covers and page counts).
+3. The app serves at `https://<name>.onrender.com`.
+
+Note the 0.1 CPU: local embeddings run slow there — if runs crawl or the instance OOMs, set
+`EMBEDDINGS_PROVIDER=none` (deterministic layout) or use a hosted embedder.
+
+Tip: a free [UptimeRobot](https://uptimerobot.com) monitor pinging `/api/health` every 5 min
+keeps the instance awake permanently (one always-on service fits the 750 h/month), so the
+published map stays up instead of vanishing at the first 15-min idle gap.
+
+Alternatives, verified July 2026:
+- ~~Koyeb free~~ — gone: Mistral's acquisition (Feb 2026) closed new Starter-tier signups.
+- **Oracle Cloud Always Free** — halved in June 2026 to 2 OCPU / 12 GB ARM, still the roomiest
+  truly-free always-on option, but provisioning hits "out of capacity" in most regions
+  (Frankfurt and Singapore usually work) and the VM is self-managed.
+- **Google Cloud Run** — real never-expiring free quota, scale-to-zero; needs a card on file.
+- **Fly.io / Railway** — no genuine free tier anymore (Fly: card + ~$2+/mo; Railway: one-time
+  $5 trial then $1/mo credit).
+
+There is no passphrase to set. A deployed host has no `claude` login, so it cannot run the
+pipeline — the run/import/suggest routes are **not registered there at all**, and visitors get
+the read-only map. You run on your laptop and publish with one click.
+
+There are no passwords to set anywhere. Publishing to the host is open — the deployment needs
+no configuration at all, and if someone ever replaced the map you republish in one click.
+
+## Requirements
+
+Node ≥ 20 (developed on Node 24).

@@ -1,4 +1,3 @@
-import { authHeaders } from "./api";
 import { titleCase } from "./titleCase";
 import type { TallyMember } from "./tallyCsv";
 
@@ -42,7 +41,7 @@ export async function resolveBookLists(members: TallyMember[]): Promise<number> 
   const keys = [...unique.keys()];
   const res = await fetch("/api/resolve", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ entries: keys.map((k) => unique.get(k)!) }),
   });
   if (!res.ok) throw new Error(`resolve failed (${res.status})`);

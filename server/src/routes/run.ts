@@ -1,8 +1,8 @@
 import type { Request, Response } from "express";
-import type { Effort, RunRequest } from "@sb/shared";
+import type { RunRequest, SseEvent } from "@sb/shared";
 import { config } from "../config";
-import { constantTimeEqual } from "../domain/auth";
-import { normalizePace, resolveHistory, resolveMembers, resolveQuality } from "../domain/request";
+import { normalizePace, resolveMembers, resolveQuality, resolveRunHistory } from "../domain/request";
+import { pastReadsHistory } from "../pastReadsStore";
 import { runPipeline } from "../pipeline/orchestrator";
 import { acquireRunSlot, checkRateLimit, releaseRunSlot } from "../ratelimit/rateLimiter";
 import { openSse } from "../sse/channel";
@@ -29,12 +29,10 @@ export async function handleRun(req: Request, res: Response): Promise<void> {
     return;
   }
 
+  // No effort gate any more: the route only exists on a machine with a `claude` login — i.e.
+  // the organizer's own laptop, spending their own subscription. There is nobody to guard it
+  // from. (Presets never yield "max" anyway; only a hand-made request can.)
   const { model, effort } = resolveQuality(body, config.ANTHROPIC_EFFORT);
-  if (effort === "max" && !constantTimeEqual(body.maxEffortPassphrase, config.MAX_EFFORT_PASSPHRASE)) {
-    res.status(403).json({ error: "Effort 'max' requires a valid passphrase." });
-    return;
-  }
-
   const pace = normalizePace(body.pace);
   const soloMode = body.soloMode ?? members.length <= 1;
 
@@ -50,10 +48,18 @@ export async function handleRun(req: Request, res: Response): Promise<void> {
     if (!res.writableEnded) controller.abort();
   });
 
-  const sse = openSse(req, res);
+  const sse = openSse<SseEvent>(res);
   try {
     await runPipeline(
-      { members, constraints: body.constraints, pace, effort, model, soloMode, history: resolveHistory(body) },
+      {
+        members,
+        constraints: body.constraints,
+        pace,
+        effort,
+        model,
+        soloMode,
+        history: resolveRunHistory(body, pastReadsHistory()),
+      },
       sse.send,
       controller.signal,
     );

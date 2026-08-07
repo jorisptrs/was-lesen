@@ -12,4 +12,4 @@ Rules:
 - Do NOT propose any book listed as already read, and do NOT repeat any book already in the pool of member suggestions.
 - Avoid extremely obscure or out-of-print books that would be hard to obtain, unless a member's taste clearly calls for it.
 
-Output JSON only, matching the provided schema: an array of `candidates`, each with a `title` and an `author`. No prose outside the JSON.
+Output one line per proposed book, following the output instructions: a `title` and an `author` each. No commentary.

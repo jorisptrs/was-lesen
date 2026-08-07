@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
-import { type Pace, qualityOf, type ScoredCard } from "@sb/shared";
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { Pace, ScoredCard } from "@sb/shared";
+import { rankByQuality } from "../lib/finalMap";
 import type { FinalistControls } from "../lib/finalists";
 import { type MapLayout, layoutMap } from "../lib/mapLayout";
 import type { ScoredState } from "../state";
@@ -14,6 +15,14 @@ interface Props {
   onPin: (id: string) => void;
   colorOf: Map<string, string>;
   pace: Pace;
+  /** Ranks computed over a LARGER set than what's rendered (the final map shows the shortlist
+   * but keeps each book's rank across the whole map). */
+  rankOverride?: Map<string, number>;
+  /** Total the ranks are drawn from, for the legend ("of 18"). */
+  rankTotal?: number;
+  /** Drop the cluster names. On the final map a "cluster" is one or two covers, so its label
+   * sits right on top of them — and a ranked shortlist doesn't need topic names anyway. */
+  hideLabels?: boolean;
 }
 
 interface View {
@@ -32,7 +41,7 @@ const DRAG_THRESHOLD = 4; // px of movement before a press counts as a pan (not 
  * transform computed once per layout so covers keep a stable size on resize/collapse. Hover a cover
  * for its details (floating card); click to pin it into the left rail.
  */
-export function CoverMap({ scored, finalists, pinnedId, onPin, colorOf, pace }: Props) {
+export function CoverMap({ scored, finalists, pinnedId, onPin, colorOf, pace, rankOverride, rankTotal, hideLabels }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [view, setView] = useState<View>({ scale: 1, tx: 0, ty: 0 });
@@ -49,16 +58,22 @@ export function CoverMap({ scored, finalists, pinnedId, onPin, colorOf, pace }: 
   }, []);
 
   const byId = useMemo(() => new Map(scored.books.map((b) => [b.id, b])), [scored.books]);
-  // Bowling-style rank: 1 = best overall pick, by the selection's own quality blend.
-  const rankOf = useMemo(() => {
-    const sorted = [...scored.books].sort(
-      (a, b) =>
-        qualityOf(b.avgFit, b.discussability, b.pageCount) - qualityOf(a.avgFit, a.discussability, a.pageCount),
-    );
-    return new Map(sorted.map((b, i) => [b.id, i + 1]));
-  }, [scored.books]);
+  // Bowling-style rank: 1 = best overall pick, by the selection's own quality blend. The final
+  // map passes the WHOLE map's ranks in, so a shortlisted book keeps the number it earned there.
+  const rankOf = useMemo(() => rankOverride ?? rankByQuality(scored.books), [scored.books, rankOverride]);
   // Hovering a cluster LABEL dims every other cluster's covers; hovering a cover lights its label.
   const [hoverCluster, setHoverCluster] = useState<string | null>(null);
+
+  // A label needs pointer events for that hover link, which means it also SWALLOWS clicks meant
+  // for the covers it floats over — those books simply could not be pinned (found by driving a
+  // suggestion whose new cover happened to land under one). Forward the click to the cover
+  // underneath instead of eating it.
+  const pinThrough = (e: ReactMouseEvent) => {
+    const cover = document
+      .elementsFromPoint(e.clientX, e.clientY)
+      .find((el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains("map-cover"));
+    cover?.click();
+  };
 
   const layout = useMemo(() => {
     const clusters = scored.clusters.map((cl) => ({
@@ -299,7 +314,7 @@ export function CoverMap({ scored, finalists, pinnedId, onPin, colorOf, pace }: 
                   <Cover title={b.title} author={b.author} coverUrl={b.coverUrl} verify={b.status} size={{ w: lb.w, h: lb.h }} accent={cl.color} />
                   <span
                     className={`rank-badge ${badgeCorner.get(b.id) ?? "tl"}`}
-                    title={`#${rankOf.get(b.id)} overall (fit + discussability, slight length discount)`}
+                    title={`#${rankOf.get(b.id)} of ${rankTotal ?? scored.books.length} overall (fit + discussability, slight length discount)`}
                   >
                     {rankOf.get(b.id)}
                   </span>
@@ -307,14 +322,17 @@ export function CoverMap({ scored, finalists, pinnedId, onPin, colorOf, pace }: 
                 </div>
               );
             })}
-            <div
-              className={`map-label${hovered?.book.clusterLabel === cl.label || hoverCluster === cl.label ? " hot" : ""}`}
-              style={{ left: cl.cx, top: cl.cy - cl.r * 0.72, color: cl.color }}
-              onMouseEnter={() => setHoverCluster(cl.label)}
-              onMouseLeave={() => setHoverCluster(null)}
-            >
-              {cl.label}
-            </div>
+            {!hideLabels && (
+              <div
+                className={`map-label${hovered?.book.clusterLabel === cl.label || hoverCluster === cl.label ? " hot" : ""}`}
+                style={{ left: cl.cx, top: cl.cy - cl.r * 0.72, color: cl.color }}
+                onMouseEnter={() => setHoverCluster(cl.label)}
+                onMouseLeave={() => setHoverCluster(null)}
+                onClick={pinThrough}
+              >
+                {cl.label}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -333,7 +351,8 @@ export function CoverMap({ scored, finalists, pinnedId, onPin, colorOf, pace }: 
         ⛶
       </button>
       <div className="rank-legend" aria-hidden="true">
-        <span className="rank-legend-badge">1</span> = best match
+        <span className="rank-legend-badge">1</span>
+        {rankTotal && rankTotal > scored.books.length ? ` = best of all ${rankTotal}` : " = best match"}
       </div>
     </div>
   );

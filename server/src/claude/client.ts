@@ -1,7 +1,17 @@
 import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Effort } from "@sb/shared";
 import { config } from "../config";
+import {
+  buildFileProtocolBlock,
+  callTimeoutMs,
+  countCompleteLines,
+  mergeByKey,
+  missingKeys,
+  parseJsonl,
+} from "./jsonl";
 
 // Claude runs through the logged-in `claude` CLI ONLY — the organizer's own subscription. The
 // pay-per-token API path was removed deliberately: this is a single-organizer tool run from a
@@ -25,104 +35,215 @@ export class ClaudeError extends Error {
 export interface StructuredCallInput<T> {
   system: string;
   user: string;
-  maxTokens: number;
   effort: Effort;
-  /** Plain JSON Schema for output_config.format. */
-  jsonSchema: Record<string, unknown>;
-  /** Validate + type the parsed JSON (e.g. a zod `schema.parse`). */
-  validate: (raw: unknown) => T;
+  /** JSON Schema for ONE output line. */
+  lineSchema: Record<string, unknown>;
+  /** Validate one parsed line (e.g. a zod `schema.parse`). Throwing marks the line malformed. */
+  parseLine: (raw: unknown) => T;
+  /** Identity of a line, for de-duplication and gap detection. Omit for open-ended lists. */
+  keyOf?: (line: T) => string;
+  /** Keys we must end up with. Gaps trigger the one recovery call. Needs `keyOf` + `followUpUser`. */
+  expectedKeys?: string[];
+  /** Prompt asking for ONLY the listed keys — must re-include their full context. */
+  followUpUser?: (missing: string[]) => string;
+  /** Drives the timeout, the grouping wording, and progress totals. */
+  expectedLines?: number;
+  /** Writing no lines is a legitimate answer (the rule filter finding nothing). */
+  zeroLinesOk?: boolean;
+  /** Called with the count of complete lines as they land, for progress UI. Never decreases. */
+  onLines?: (completeLines: number) => void;
   signal?: AbortSignal;
   /** Override the model for this call (defaults to `ANTHROPIC_MODEL`). */
   model?: string;
 }
 
+const OUTPUT_FILE = "out.jsonl";
+const POLL_MS = 1000;
+
 /**
- * One structured-output Claude call, always through the logged-in `claude` CLI.
- * `effort` and `jsonSchema` are honoured by the CLI path (`--effort`, and the schema restated
- * in the system prompt); `maxTokens` is advisory only — see the cap note on `runCli`.
+ * One structured Claude call through the logged-in `claude` CLI, answered as JSONL in a scratch
+ * sandbox rather than as response text — see `jsonl.ts` for why. Returns every line that survived
+ * validation, which may be fewer than asked for: callers own the degrade.
  */
-export async function structuredCall<T>(opts: StructuredCallInput<T>): Promise<T> {
-  return cliStructuredCall(opts, opts.model ?? config.ANTHROPIC_MODEL);
+export async function structuredCall<T>(opts: StructuredCallInput<T>): Promise<T[]> {
+  const model = cliModel(opts.model ?? config.ANTHROPIC_MODEL);
+  const started = Date.now();
+  const sandboxes: string[] = [];
+  // Progress is reported across BOTH calls, so it never walks backwards when the recovery call
+  // starts a fresh (empty) file of its own.
+  let reported = 0;
+  const report = opts.onLines
+    ? (n: number) => {
+        if (n > reported) {
+          reported = n;
+          opts.onLines!(n);
+        }
+      }
+    : undefined;
+
+  try {
+    const main = await runInSandbox(opts, model, opts.user, opts.expectedLines, sandboxes, report);
+
+    let merged = opts.keyOf ? mergeByKey(main.lines, opts.keyOf) : null;
+    let lines = merged ? [...merged.values()] : main.lines;
+    let malformed = main.malformed.length;
+    let notional = main.notionalUsd;
+    let missing = opts.expectedKeys && merged ? missingKeys(opts.expectedKeys, new Set(merged.keys())) : [];
+    // Whether the LAST call ended cleanly — a recovery that succeeds makes an empty result
+    // trustworthy again, which is what separates "no violations" from "the call died".
+    let cleanExit = main.ok;
+    let detail = main.detail;
+
+    // ONE recovery call, never two. Two shapes, same call: fill the gaps when we know which keys
+    // are missing, or plainly retry when the whole call died and left nothing (the CLI reports
+    // transient failures — "Not logged in", usage limits — as a clean is_error with no output).
+    const gapRecovery = missing.length > 0 && !!opts.followUpUser;
+    const emptyRetry = lines.length === 0 && !main.ok;
+    if ((gapRecovery || emptyRetry) && !opts.signal?.aborted) {
+      const recoveryUser = gapRecovery ? opts.followUpUser!(missing) : opts.user;
+      const recoveryLines = gapRecovery ? missing.length : opts.expectedLines;
+      console.warn(
+        `[claude-cli] recovery call: ${gapRecovery ? `${missing.length} missing line(s)` : `nothing salvaged (${main.detail})`}`,
+      );
+      const salvaged = lines.length;
+      const retry = await runInSandbox(opts, model, recoveryUser, recoveryLines, sandboxes, (n) =>
+        report?.(salvaged + n),
+      );
+      notional += retry.notionalUsd;
+      malformed += retry.malformed.length;
+      cleanExit = retry.ok;
+      detail = retry.detail || detail;
+      if (opts.keyOf) {
+        merged = mergeByKey([...(merged ? [...merged.values()] : []), ...retry.lines], opts.keyOf);
+        lines = [...merged.values()];
+        missing = opts.expectedKeys ? missingKeys(opts.expectedKeys, new Set(merged.keys())) : [];
+      } else {
+        lines = [...lines, ...retry.lines];
+      }
+    }
+
+    if (lines.length === 0 && !(opts.zeroLinesOk && cleanExit)) {
+      throw new ClaudeError("bad_output", `claude CLI produced no valid lines: ${detail || "empty output"}`, true);
+    }
+
+    console.log(
+      `[claude-cli] ${model} done in ${Math.round((Date.now() - started) / 1000)}s ` +
+        `(${lines.length} lines${missing.length ? `, ${missing.length} missing` : ""}` +
+        `${malformed ? `, ${malformed} malformed` : ""}; subscription; notional $${notional.toFixed(2)})`,
+    );
+    if (missing.length) {
+      console.warn(`[claude-cli] unfilled after recovery: ${missing.slice(0, 10).join(", ")}`);
+    }
+    return lines;
+  } finally {
+    await Promise.all(sandboxes.map((dir) => rm(dir, { recursive: true, force: true }).catch(() => {})));
+  }
 }
 
 // ---------- CLI backend: run prompts through the logged-in `claude` CLI (subscription) ----------
-
-/** Extract the first complete JSON object from model text (tolerates prose/fences around it). */
-export function extractJsonObject(text: string): string | null {
-  const start = text.indexOf("{");
-  if (start < 0) return null;
-  let depth = 0;
-  let inStr = false;
-  let esc = false;
-  for (let i = start; i < text.length; i++) {
-    const c = text[i]!;
-    if (esc) {
-      esc = false;
-      continue;
-    }
-    if (c === "\\") {
-      if (inStr) esc = true;
-      continue;
-    }
-    if (c === '"') {
-      inStr = !inStr;
-      continue;
-    }
-    if (inStr) continue;
-    if (c === "{") depth++;
-    else if (c === "}") {
-      depth--;
-      if (depth === 0) return text.slice(start, i + 1);
-    }
-  }
-  return null;
-}
-
-/** Escape raw control characters inside JSON string literals. Without the API's structured
- * output enforcement, models emit REAL newlines inside strings (two-paragraph summaries),
- * which JSON.parse rejects ("Bad control character"). */
-export function escapeControlCharsInStrings(json: string): string {
-  let out = "";
-  let inStr = false;
-  let esc = false;
-  for (const c of json) {
-    if (esc) {
-      out += c;
-      esc = false;
-      continue;
-    }
-    if (c === "\\") {
-      out += c;
-      if (inStr) esc = true;
-      continue;
-    }
-    if (c === '"') {
-      inStr = !inStr;
-      out += c;
-      continue;
-    }
-    if (inStr && c.charCodeAt(0) < 0x20) {
-      out += c === "\n" ? "\\n" : c === "\r" ? "\\r" : c === "\t" ? "\\t" : `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`;
-      continue;
-    }
-    out += c;
-  }
-  return out;
-}
 
 // The subscription CLI serves the opus/sonnet tiers; haiku isn't a primary model there — and
 // under a subscription the cheap-tier motivation disappears anyway.
 const cliModel = (model: string): string => (/haiku/.test(model) ? "claude-sonnet-5" : model);
 
-// KNOWN CAP: `CLAUDE_CODE_MAX_OUTPUT_TOKENS` is NOT honoured by the CLI (verified on 2.1.219) —
-// a call asking for 1024 produced 4096 output tokens, the CLI's own default, and there is no
-// --max-tokens flag. So any single call whose JSON exceeds ~4096 output tokens is truncated and
-// comes back `is_error`. Small calls (lens passes, filter, cluster names) fit comfortably; Stage 3
-// scoring a large pool does NOT, and must be batched. We still set the env var: harmless, and it
-// starts working the day the CLI honours it.
-function runCli(args: string[], stdin: string, maxTokens: number, signal?: AbortSignal): Promise<string> {
+interface SandboxResult<T> {
+  ok: boolean;
+  detail: string;
+  lines: T[];
+  malformed: string[];
+  notionalUsd: number;
+}
+
+/** Run one call in a fresh sandbox and read back whatever landed in the file — even on failure. */
+async function runInSandbox<T>(
+  opts: StructuredCallInput<T>,
+  model: string,
+  user: string,
+  expectedLines: number | undefined,
+  sandboxes: string[],
+  onLines?: (completeLines: number) => void,
+): Promise<SandboxResult<T>> {
+  const dir = await mkdtemp(join(tmpdir(), "sb-claude-"));
+  sandboxes.push(dir);
+  const file = join(dir, OUTPUT_FILE);
+  const system = `${opts.system}\n\n${buildFileProtocolBlock({
+    outputPath: file,
+    lineSchema: opts.lineSchema,
+    expectedLines,
+    zeroLinesOk: opts.zeroLinesOk,
+  })}`;
+
+  const args = [
+    "-p",
+    "--output-format", "json",
+    "--model", model,
+    "--effort", opts.effort,
+    // The answer arrives as a file, so the agent needs write access — but ONLY to its own
+    // sandbox. Verified on 2.1.218: --add-dir is what grants it (acceptEdits alone denies even
+    // the sandbox), and with only that directory granted, writes anywhere else are denied.
+    // --tools drops Bash and the web tools entirely. Member-written text reaches these prompts,
+    // so the worst a prompt injection can reach is a temp dir we delete on the way out.
+    "--permission-mode", "acceptEdits",
+    "--add-dir", dir,
+    "--tools", "Write,Edit,Read",
+    "--system-prompt", system,
+  ];
+
+  const stop = onLines ? pollLines(file, onLines, opts.signal) : () => {};
+  try {
+    const outcome = await runCli(args, user, dir, callTimeoutMs(expectedLines), opts.signal);
+    const text = await readFile(file, "utf8").catch(() => "");
+    const { valid, malformed } = parseJsonl(text, opts.parseLine);
+    if (outcome.ok && outcome.resultText.trim().toLowerCase() !== "done") {
+      console.warn(`[claude-cli] unexpected final reply: ${outcome.resultText.slice(0, 120)}`);
+    }
+    return { ok: outcome.ok, detail: outcome.detail, lines: valid, malformed, notionalUsd: outcome.notionalUsd };
+  } finally {
+    stop();
+  }
+}
+
+/** Watch the output file so a long call can report progress. Cheap by design: no JSON parsing. */
+function pollLines(file: string, onLines: (n: number) => void, signal?: AbortSignal): () => void {
+  let last = 0;
+  const timer = setInterval(() => {
+    if (signal?.aborted) return;
+    readFile(file, "utf8")
+      .then((text) => {
+        const n = countCompleteLines(text);
+        // Monotonic: the agent may rewrite the file wholesale, and progress must never walk back.
+        if (n > last) {
+          last = n;
+          onLines(n);
+        }
+      })
+      .catch(() => {});
+  }, POLL_MS);
+  return () => clearInterval(timer);
+}
+
+interface CliOutcome {
+  /** The process exited cleanly AND the CLI did not report an error of its own. */
+  ok: boolean;
+  detail: string;
+  resultText: string;
+  notionalUsd: number;
+}
+
+/**
+ * Spawn the CLI. Resolves with an outcome for anything the file might still have survived —
+ * timeouts, non-zero exits, `is_error` envelopes — because the salvage read happens either way.
+ * Only an aborted run or a missing binary reject: neither can have produced output.
+ */
+function runCli(
+  args: string[],
+  stdin: string,
+  cwd: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<CliOutcome> {
   return new Promise((resolve, reject) => {
-    const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(Math.min(maxTokens, 64000)) };
+    const env: NodeJS.ProcessEnv = { ...process.env };
     // The CLI prefers an API key from the environment over the subscription login — strip the
     // billing paths so a personal run can never accidentally charge API credits.
     delete env.ANTHROPIC_API_KEY;
@@ -131,22 +252,38 @@ function runCli(args: string[], stdin: string, maxTokens: number, signal?: Abort
     const child = execFile(
       "claude",
       args,
-      // cwd = tmpdir so the CLI can't pull this (or any) repo's project context into the call.
-      { cwd: tmpdir(), env, maxBuffer: 64 * 1024 * 1024, timeout: 10 * 60_000, signal },
+      // cwd = the call's own sandbox: it is where `out.jsonl` goes, and it keeps the CLI from
+      // pulling this (or any) repo's project context into the call.
+      { cwd, env, maxBuffer: 8 * 1024 * 1024, timeout: timeoutMs, signal },
       (err, stdout, stderr) => {
+        const out = stdout?.toString() ?? "";
         if (err) {
+          if (signal?.aborted) {
+            reject(new ClaudeError("connection", "claude CLI failed: aborted", false));
+            return;
+          }
+          if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+            reject(new ClaudeError("connection", "claude CLI not found on PATH", false));
+            return;
+          }
           // The CLI reports its own failures (usage limits, bad model, auth) on STDOUT and leaves
           // stderr empty, so stderr-or-err.message yielded a bare "Command failed: claude -p …"
           // that echoed the whole prompt back and said nothing. Prefer stderr, fall back to
           // stdout, and only then to the useless message.
-          const out = stdout?.toString().trim() ?? "";
-          const detail = signal?.aborted
-            ? "aborted"
-            : stderr?.toString().trim().slice(0, 300) || out.slice(0, 400) || err.message;
-          reject(new ClaudeError("connection", `claude CLI failed: ${detail}`, !signal?.aborted));
-        } else {
-          resolve(stdout.toString());
+          const killed = (err as { killed?: boolean }).killed;
+          const detail = killed
+            ? `timed out after ${Math.round(timeoutMs / 60_000)}min`
+            : stderr?.toString().trim().slice(0, 300) || readEnvelope(out).result.slice(0, 300) || err.message;
+          resolve({ ok: false, detail, resultText: "", notionalUsd: readEnvelope(out).notionalUsd });
+          return;
         }
+        const { result, isError, notionalUsd } = readEnvelope(out);
+        resolve({
+          ok: !isError,
+          detail: isError ? result.slice(0, 300) : "",
+          resultText: result,
+          notionalUsd,
+        });
       },
     );
     child.stdin?.write(stdin);
@@ -154,64 +291,18 @@ function runCli(args: string[], stdin: string, maxTokens: number, signal?: Abort
   });
 }
 
-async function cliStructuredCall<T>(opts: StructuredCallInput<T>, model: string): Promise<T> {
-  const system =
-    `${opts.system}\n\n` +
-    `Output format (MANDATORY): respond with ONLY one JSON object that validates against this ` +
-    `JSON Schema — no prose, no markdown fences, no tool use:\n${JSON.stringify(opts.jsonSchema)}`;
-  // --effort was previously never passed, so every quality preset silently ran at the CLI's
-  // default — the same footgun M25 removed from the UI. cliModel() maps haiku onto sonnet, and
-  // every model the CLI serves takes effort, so it's unconditional.
-  const args = [
-    "-p",
-    "--output-format", "json",
-    "--model", cliModel(model),
-    "--effort", opts.effort,
-    "--system-prompt", system,
-  ];
-
-  let lastErr = "";
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const started = Date.now();
-    const prompt =
-      attempt === 0
-        ? opts.user
-        : `${opts.user}\n\n(Your previous output was invalid: ${lastErr}. Output ONLY the JSON object.)`;
-    const out = await runCli(args, prompt, opts.maxTokens, opts.signal);
-
-    // Envelope: --output-format json prints one JSON object with the assistant text in .result.
-    let resultText = out;
-    let notional = 0;
-    try {
-      const lastLine = out.trim().split("\n").filter(Boolean).pop() ?? "";
-      const envelope = JSON.parse(lastLine) as { result?: string; is_error?: boolean; total_cost_usd?: number };
-      if (envelope.is_error) {
-        lastErr = (envelope.result ?? "CLI reported an error").slice(0, 200);
-        console.warn(`[claude-cli] attempt ${attempt + 1} errored: ${lastErr}`);
-        continue;
-      }
-      if (typeof envelope.result === "string") resultText = envelope.result;
-      notional = envelope.total_cost_usd ?? 0;
-    } catch {
-      // no envelope — treat the raw output as the model text
-    }
-
-    const json = extractJsonObject(resultText);
-    if (json) {
-      try {
-        const value = opts.validate(JSON.parse(escapeControlCharsInStrings(json)));
-        console.log(
-          `[claude-cli] ${cliModel(model)} done in ${Math.round((Date.now() - started) / 1000)}s ` +
-            `(subscription; notional $${notional.toFixed(2)})`,
-        );
-        return value;
-      } catch (e) {
-        lastErr = (e instanceof Error ? e.message : "schema mismatch").slice(0, 200);
-      }
-    } else {
-      lastErr = "no JSON object found in the output";
-    }
-    console.warn(`[claude-cli] attempt ${attempt + 1} invalid: ${lastErr}`);
+/** `--output-format json` prints one JSON object with the assistant text in `.result`. */
+function readEnvelope(stdout: string): { result: string; isError: boolean; notionalUsd: number } {
+  try {
+    const lastLine = stdout.trim().split("\n").filter(Boolean).pop() ?? "";
+    const envelope = JSON.parse(lastLine) as { result?: string; is_error?: boolean; total_cost_usd?: number };
+    return {
+      result: typeof envelope.result === "string" ? envelope.result : "",
+      isError: envelope.is_error === true,
+      notionalUsd: envelope.total_cost_usd ?? 0,
+    };
+  } catch {
+    // No envelope. The file is the source of truth, so this is only a loss of telemetry.
+    return { result: "", isError: false, notionalUsd: 0 };
   }
-  throw new ClaudeError("bad_output", `claude CLI output failed validation: ${lastErr}`, true);
 }

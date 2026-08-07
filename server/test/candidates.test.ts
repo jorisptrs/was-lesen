@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Member } from "@sb/shared";
-import { exclusionKeys, filterClaudeCandidates, isExcluded, seedLoved, seedNominations } from "../src/pipeline/candidates";
+import { exclusionKeys, filterClaudeCandidates, isExcluded, seedLoved, seedNominations, seedPool } from "../src/pipeline/candidates";
 
 const member = (o: Partial<Member> & { name: string }): Member => ({
   name: o.name,
@@ -63,7 +63,7 @@ describe("exclusionKeys", () => {
 
 describe("isExcluded", () => {
   it("matches a subtitled entry against a bare-title exclusion (the Scout Mindset case)", () => {
-    const excluded = exclusionKeys([member({ name: "Mara", alreadyRead: [{ title: "The Scout Mindset" }] })]);
+    const excluded = exclusionKeys([member({ name: "Joris", alreadyRead: [{ title: "The Scout Mindset" }] })]);
     expect(isExcluded("The Scout Mindset: Why Some People See Things Clearly and Others Don't", excluded)).toBe(true);
     expect(isExcluded("The Scout Mindset", excluded)).toBe(true);
     expect(isExcluded("The Righteous Mind", excluded)).toBe(false);
@@ -94,5 +94,28 @@ describe("filterClaudeCandidates", () => {
     );
     expect(out.map((c) => c.title)).toEqual(["The Overstory"]);
     expect(out[0]).toMatchObject({ provenance: "claude_own_pick", nominatedBy: null });
+  });
+});
+
+describe("seedPool", () => {
+  const members: Member[] = [
+    {
+      name: "Ana",
+      paragraph: "",
+      suggestions: [{ title: "Exhalation" }],
+      alreadyRead: [{ title: "Dune" }],
+      loved: [{ title: "Seeing Like a State" }, { title: "Exhalation" }, { title: "Dune" }],
+    },
+  ];
+
+  it("keeps suggestions over the same book liked, and drops already-read ones", () => {
+    const pool = seedPool(members, undefined);
+    expect(pool.map((c) => c.title)).toEqual(["Exhalation", "Seeing Like a State"]);
+    expect(pool[0]!.provenance).toBe("member_nomination"); // an explicit ask outranks a taste echo
+  });
+
+  it("drops a liked book the group has since read TOGETHER (the store's rows land here)", () => {
+    const pool = seedPool(members, [{ title: "seeing like a state", notes: [] }]);
+    expect(pool.map((c) => c.title)).toEqual(["Exhalation"]);
   });
 });

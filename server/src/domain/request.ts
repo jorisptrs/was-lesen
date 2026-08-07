@@ -1,4 +1,4 @@
-import type { Effort, Member, Pace, PastRead, RunRequest } from "@sb/shared";
+import { type Effort, type Member, type Pace, type PastRead, type RunRequest, HISTORY_CAP, mergeHistory } from "@sb/shared";
 import { parseMembers } from "./members";
 
 export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];
@@ -28,6 +28,20 @@ export function resolveMembers(body: RunRequest): Member[] {
   return [];
 }
 
+/**
+ * The run's full past-reads history: what the request carried, merged with the laptop's
+ * persistent store. This is THE seam — `ResolvedRun.history` feeds the exclusion set and both
+ * prompts, so merging here makes the store apply to generation, scoring, exclusions and
+ * Show-Prompt without any of them knowing the store exists.
+ */
+export function resolveRunHistory(body: RunRequest, stored: PastRead[]): PastRead[] | undefined {
+  const { history, dropped } = mergeHistory(resolveHistory(body), stored);
+  if (dropped > 0) {
+    console.warn(`[history] ${dropped} past read(s) over the ${HISTORY_CAP} cap — they will NOT be excluded`);
+  }
+  return history.length > 0 ? history : undefined;
+}
+
 /** Sanitize the past-reads history from the client (cap sizes; drop malformed entries). */
 export function resolveHistory(body: RunRequest): PastRead[] | undefined {
   if (!Array.isArray(body.history)) return undefined;
@@ -37,7 +51,6 @@ export function resolveHistory(body: RunRequest): PastRead[] | undefined {
     .map((h) => ({
       title: h.title.trim(),
       ...(typeof h.author === "string" && h.author.trim() ? { author: h.author.trim() } : {}),
-      ...(typeof h.finished === "string" && h.finished ? { finished: h.finished } : {}),
       ...(typeof h.avgRating === "number" ? { avgRating: h.avgRating } : {}),
       notes: (Array.isArray(h.notes) ? h.notes : [])
         .filter((n) => n && typeof n.member === "string" && typeof n.note === "string" && n.note.trim())
@@ -47,8 +60,10 @@ export function resolveHistory(body: RunRequest): PastRead[] | undefined {
   return reads.length > 0 ? reads : undefined;
 }
 
+/** Default 180 pages / 2 weeks: the simple intake form doesn't ask about pace, so the fallback
+ * is what most runs actually use (the organizer can still hand-edit it). */
 export function normalizePace(pace: Pace | undefined): Pace {
-  const pages = pace && pace.pages > 0 ? Math.round(pace.pages) : 160;
+  const pages = pace && pace.pages > 0 ? Math.round(pace.pages) : 180;
   const weeks = pace && pace.weeks > 0 ? Math.round(pace.weeks) : 2;
   return { pages, weeks };
 }

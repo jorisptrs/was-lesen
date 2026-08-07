@@ -8,10 +8,10 @@ into a dashboard.
 
 1. [What you'll need](#1-what-youll-need)
 2. [Run it locally](#2-run-it-locally-this-is-the-main-way) · [Deploy it (optional)](#2b-deploy-it-optional--only-for-a-shareable-link)
-3. [Lock it down ← don't skip](#3-lock-it-down--dont-skip)
+3. [Who can do what](#3-who-can-do-what-nothing-to-configure)
 4. [Keep it awake](#4-keep-it-awake-optional-but-recommended)
 5. [Build your intake form](#5-build-your-intake-form)
-6. [Build your feedback form](#6-build-your-feedback-form-optional)
+6. [Record what you read](#6-record-what-you-read-no-second-form)
 7. [Run your first cycle](#7-run-your-first-cycle)
 8. [What it costs](#8-what-it-costs)
 9. [Troubleshooting](#9-troubleshooting)
@@ -71,9 +71,9 @@ publishes; it never runs the pipeline.
 6. Visit `https://<your-app-name>.onrender.com/api/health`. You want `{"ok":true}` — if you get
    that, the server is alive.
 
-Then set `PUBLISH_TARGET=https://<your-app>.onrender.com` and `PUBLISH_PASSPHRASE=<the hosted
-APP_PASSPHRASE>` in your **local** `.env`, and the publish button on your laptop sends the run
-straight to the hosted app in one click.
+Then set `PUBLISH_TARGET=https://<your-app>.onrender.com` in your **local** `.env`, and the
+publish button on your laptop sends the run straight to the hosted app in one click. That's the
+only setting involved — there is no key to match up.
 
 **A note on the free plan.** 512 MB RAM, 0.1 CPU, sleeps after 15 minutes idle, and the
 filesystem is wiped on every restart. All fine for this, with two consequences worth knowing:
@@ -86,23 +86,24 @@ filesystem is wiped on every restart. All fine for this, with two consequences w
 
 ---
 
-## 3. Lock it down ← don't skip
+## 3. Who can do what (nothing to configure)
 
-**Set `APP_PASSPHRASE` in Render → your service → Environment.** Any string; treat it like a
-password.
+There are **no passwords anywhere**, and nothing to lock down. The two roles fall out of what
+each machine can actually do:
 
-Without it, your app is **completely open**: anyone who finds the URL can start runs, and every
-run spends *your* Anthropic credits. The per-IP rate limit is the only thing standing between a
-stranger and your bill.
+| | Your laptop | The deployed copy |
+|---|---|---|
+| Has your `claude` login | yes | no |
+| Can run, import, add books | **yes** | no — those routes aren't even registered |
+| Shows the published map | yes | **yes** |
 
-With it set:
+Open the deployed URL and you get the map, a tray to shortlist into, and a pace control. The
+run controls aren't hidden behind a password — on that machine they don't exist. So there's no
+passphrase to set, and no way to leave the deployment "open" by forgetting one.
 
-- **Everyone** who opens the link sees the latest published map, read-only. They can pan, zoom,
-  tap a cover for details, and collect books into a tray. They cannot run or publish.
-- **You** click **unlock** (top right), enter the passphrase once, and get the full app. Your
-  browser remembers it.
-
-Members never need the passphrase. Only you do.
+> **One accepted trade-off.** Publishing to your deployed copy is unauthenticated, so someone
+> who knows the URL could replace the map. Nothing leaks and nothing costs money if they do —
+> you republish from your laptop in one click. This keeps the deployment zero-configuration.
 
 ---
 
@@ -155,21 +156,22 @@ asked for it. Nobody gets challenge imposed on them; it's opt-in by construction
 
 ---
 
-## 6. Build your feedback form (optional)
+## 6. Record what you read (no second form)
 
-Send this out **after** the group finishes a book. It's what makes the next round smarter: past
-reads get excluded automatically, and the ratings calibrate future scoring.
+After the group finishes a book, open the drawer's **Past reads** panel and type it in: title,
+author, a 1–5 rating, and one line on how it landed. That's it.
 
-| Ask this | Matched by |
-|---|---|
-| **Your name** | `name` |
-| **Which book?** | `book` |
-| **Did you finish it?** | `finish` |
-| **How satisfied were you? (1–5)** | `satisf` or `rating` |
-| **One line of feedback** | `feedback` or `one line` |
-| **Did this book change your mind about anything? Name the belief — or "none".** | `change your mind` or `belief` |
+This is what makes the next round smarter. Past reads are excluded from future candidates
+automatically, and the note is fed to the scorer as taste evidence — a book by an author the
+group panned needs strong counter-evidence to be proposed again, and neighbours of a hit are
+treated as good bets.
 
-You upload this with the same "load csv" link; the app detects which form it is.
+The list lives at `~/.cache/satisfying-books/past-reads.csv`. It's a plain CSV, so you can open
+it in a spreadsheet and fix a title; the app re-reads it whenever it changes.
+
+> Earlier versions imported a second Tally "feedback form" CSV. That's gone — it was a whole
+> extra form to build and send for information you can type in ten seconds, and it had to be
+> flattened to one note per book anyway.
 
 ---
 
@@ -177,7 +179,7 @@ You upload this with the same "load csv" link; the app detects which form it is.
 
 1. Send the intake form to your group. Give them a few days.
 2. Export the responses as **CSV** (Tally: Submissions → Export → CSV).
-3. Open your app, click **unlock**, enter your passphrase.
+3. Open your app on the laptop (`npm run dev` → http://localhost:5173).
 4. Click **load csv** and pick the file. You'll see one card per member. The app quietly cleans
    up typo'd titles and looks up every book mentioned, so cards show "Title (Author)".
 5. Skim the cards. Edit anything that came through wrong — it's all editable.

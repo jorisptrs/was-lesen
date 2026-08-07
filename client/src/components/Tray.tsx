@@ -5,13 +5,20 @@ import { Cover } from "./Cover";
 interface Props {
   tray: ScoredCard[];
   pace: Pace;
+  /** Each book's rank across the whole map — the tray shows the same number the map does. */
+  rankOf: Map<string, number>;
   onRemove: (id: string) => void;
-  onMove: (id: string, dir: -1 | 1) => void;
   onPresent: () => void;
+  onFinalMap: () => void;
+  finalMap: boolean;
 }
 
-/** The selections tray: ordered picks for the in-person vote — ‹ › set the Present order. */
-export function Tray({ tray, onRemove, onMove, onPresent }: Props) {
+/**
+ * The selections tray. Books show the rank they earned on the MAP, not a shortlist position —
+ * so there is nothing to hand-order and the ‹ › controls are gone; the tray, the map and the
+ * final map all say the same number about the same book.
+ */
+export function Tray({ tray, rankOf, onRemove, onPresent, onFinalMap, finalMap }: Props) {
   return (
     <div className="tray">
       <div className="tray-label">
@@ -21,9 +28,11 @@ export function Tray({ tray, onRemove, onMove, onPresent }: Props) {
         </span>
       </div>
       <div className="tray-items">
-        {tray.map((b, i) => (
+        {tray.map((b) => (
           <div className="tray-item" key={b.id}>
-            <span className="tray-pos">{i + 1}</span>
+            <span className="tray-pos" title="Rank on the map">
+              {rankOf.get(b.id) ?? "–"}
+            </span>
             <Cover title={b.title} author={b.author} coverUrl={b.coverUrl} verify={b.status} size={{ w: 34, h: 51 }} />
             <div className="tray-item-meta">
               <div className="tray-item-title" title={b.title}>
@@ -31,28 +40,29 @@ export function Tray({ tray, onRemove, onMove, onPresent }: Props) {
               </div>
               <div className="tray-item-sub">{b.author}</div>
             </div>
-            <span className="tray-move">
-              <button onClick={() => onMove(b.id, -1)} disabled={i === 0} aria-label="Rank higher" title="Rank higher">
-                ‹
-              </button>
-              <button
-                onClick={() => onMove(b.id, 1)}
-                disabled={i === tray.length - 1}
-                aria-label="Rank lower"
-                title="Rank lower"
-              >
-                ›
-              </button>
-            </span>
             <button className="tray-remove" onClick={() => onRemove(b.id)} aria-label="Remove">
+
               ×
             </button>
           </div>
         ))}
       </div>
-      <button className="btn primary tray-present" disabled={tray.length === 0} onClick={onPresent}>
-        Present
-      </button>
+      <div className="tray-actions">
+        {/* Only offered once there's something to show — an always-present disabled link is
+            just noise next to an empty tray. */}
+        {tray.length > 0 && (
+          <button
+            className="linkbtn"
+            onClick={onFinalMap}
+            title={finalMap ? "Back to the full map" : "Show only the selections, ranked in this order"}
+          >
+            {finalMap ? "full map" : "final map"}
+          </button>
+        )}
+        <button className="btn primary tray-present" disabled={tray.length === 0} onClick={onPresent}>
+          Present
+        </button>
+      </div>
     </div>
   );
 }

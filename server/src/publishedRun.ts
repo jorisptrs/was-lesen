@@ -1,7 +1,7 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import type { SavedRun } from "@sb/shared";
+import { cacheFile } from "./util/paths";
+import { persistedFile } from "./util/persist";
 
 // THE published run — a single slot. The main page shows it to everyone; publishing a new
 // run replaces it. Persisted like books/cache.ts (lazy load + debounced write) so a
@@ -13,11 +13,10 @@ interface PublishedRun {
   publishedAt: string;
 }
 
-const DIR = join(homedir(), ".cache", "satisfying-books");
-const FILE = join(DIR, "published-run.json");
+const FILE = cacheFile("published-run.json");
 let current: PublishedRun | null = null;
 let loaded = false;
-let writeTimer: NodeJS.Timeout | null = null;
+const file = persistedFile({ label: "publish", file: FILE, serialize: () => JSON.stringify(current) });
 
 function loadOnce(): void {
   if (loaded) return;
@@ -35,48 +34,12 @@ function loadOnce(): void {
   }
 }
 
-function flush(): void {
-  try {
-    mkdirSync(DIR, { recursive: true });
-    // Write-then-rename: a crash mid-write must not truncate the only copy.
-    writeFileSync(`${FILE}.tmp`, JSON.stringify(current));
-    renameSync(`${FILE}.tmp`, FILE);
-  } catch (err) {
-    console.warn("[publish] persist failed:", err instanceof Error ? err.message : err);
-  }
-}
-
-// A deploy/Ctrl-C inside the 2s debounce must not drop a just-published run.
-let shutdownHooked = false;
-function hookShutdownFlush(): void {
-  if (shutdownHooked) return;
-  shutdownHooked = true;
-  for (const sig of ["SIGTERM", "SIGINT"] as const) {
-    process.once(sig, () => {
-      if (writeTimer) {
-        clearTimeout(writeTimer);
-        writeTimer = null;
-        flush();
-      }
-      process.exit(0);
-    });
-  }
-}
-
-function scheduleWrite(): void {
-  hookShutdownFlush();
-  if (writeTimer) return;
-  writeTimer = setTimeout(() => {
-    writeTimer = null;
-    flush();
-  }, 2000);
-  writeTimer.unref?.(); // never keep the process alive just to flush
-}
-
+// A deploy/Ctrl-C inside the debounce must not drop a just-published run — `persistedFile`'s
+// shared shutdown registry handles that for every store at once (see util/persist.ts).
 export function publishRun(run: SavedRun): PublishedRun {
   loadOnce();
   current = { run, publishedAt: new Date().toISOString() };
-  scheduleWrite();
+  file.save();
   return current;
 }
 

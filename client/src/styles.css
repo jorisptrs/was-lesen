@@ -304,6 +304,19 @@ body {
 .help-pop p {
   margin: 0 0 10px;
 }
+/* Source link — a quiet footer, not a fourth point. */
+.help-pop .help-src {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.help-pop .help-src a {
+  color: var(--muted);
+}
+.help-pop .help-src a:hover {
+  color: var(--ink);
+}
 /* Pre-map views live in the full-bleed stage — pad them clear of the floating panels. */
 .stage-scroll {
   position: absolute;
@@ -699,12 +712,6 @@ select:hover:not(:focus) {
 }
 
 /* Members card deck */
-.field-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
 .linkbtn {
   background: none;
   border: none;
@@ -726,11 +733,87 @@ select:hover:not(:focus) {
   color: var(--muted);
 }
 
-/* Loaded past-read feedback (excluded from candidates; calibrates scoring) */
-.history-note {
+/* Collapsed-by-default section toggles (Members / Constraints / Past reads): the drawer's
+   resting face is counts + pace + Run; detail is one click away. */
+.sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sec-head .linkbtn {
+  padding-left: 0;
+}
+
+/* Past reads — the group's standing record (excluded from candidates; calibrates scoring). */
+.past-reads {
   font-size: 12.5px;
-  color: var(--muted);
   line-height: 1.5;
+}
+.past-reads-list {
+  list-style: none;
+  margin: 4px 0 8px;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.past-reads-list li {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto; /* cover · title · rating · × */
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.past-reads-list .cover {
+  flex: none;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.past-reads-list .cover .ph-title {
+  font-size: 5px; /* a 26px placeholder can't fit readable type — the hue carries the identity */
+}
+.past-reads-list .cover .ph-author {
+  display: none;
+}
+.past-reads-list .cover .verify-badge {
+  display: none; /* the store is trusted input, not a verification surface */
+}
+.pr-title {
+  overflow-wrap: anywhere;
+}
+.pr-rating {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.pr-del {
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+}
+.pr-note {
+  grid-column: 2 / -1; /* aligns under the title, not under the cover */
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+.past-reads-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.past-reads-add input {
+  flex: 1 1 90px;
+  min-width: 0;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+.past-reads-add .pr-rating-input {
+  flex: 0 0 44px;
+}
+.past-reads-add .pr-note-input {
+  flex: 1 1 100%;
+}
+.pr-error {
+  color: var(--danger);
 }
 
 /* Quiet overlay scrollbars in the floating panels */
@@ -1382,8 +1465,125 @@ select:hover:not(:focus) {
 .tray-remove:hover {
   color: var(--danger);
 }
+.tray-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
 .tray-present {
   white-space: nowrap;
+}
+
+/* Suggest bar — the human backstop, sitting just above the tray in the map chrome (the input
+   drawer auto-collapses when results land, so a post-run control cannot live there). */
+.suggestbar {
+  position: absolute;
+  left: calc(var(--left-w) + 16px);
+  right: calc(var(--drawer-w) + 16px);
+  bottom: 108px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  z-index: 35;
+  transition: right var(--dur), left var(--dur);
+  pointer-events: none; /* the map keeps the empty space; only the controls take clicks */
+}
+/* Verified-but-unscored books waiting for the next scoring pass. */
+.sb-pending {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 900px;
+  pointer-events: auto;
+}
+.sb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 3px;
+  background: rgba(250, 250, 249, 0.9);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 8px;
+  font-size: 12px;
+  max-width: 240px;
+}
+.sb-chip .cover {
+  flex: none;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.sb-chip .cover .cover-ph,
+.sb-chip .cover .verify-badge {
+  display: none; /* 18px is too small for text; the title sits beside it anyway */
+}
+.sb-chip-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sb-chip button {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.sb-chip button:hover:not(:disabled) {
+  color: var(--ink);
+}
+.sb-score {
+  font-size: 12.5px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+.suggestbar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(250, 250, 249, 0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 10px;
+  pointer-events: auto;
+}
+.suggestbar-row input {
+  font-size: 12.5px;
+  padding: 4px 8px;
+  width: 190px;
+}
+.suggestbar-row .sb-author {
+  width: 130px;
+}
+.suggestbar-row select {
+  font-size: 12.5px;
+  padding: 4px 6px;
+}
+.sb-busy {
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--line);
+  border-top-color: var(--muted);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex: none;
+}
+.suggestbar-status {
+  font-size: 12px;
+  max-width: 620px;
+  padding: 4px 8px;
+  background: rgba(250, 250, 249, 0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 8px;
+  pointer-events: auto;
 }
 .tray-present:disabled {
   opacity: 0.5;
@@ -1591,26 +1791,6 @@ select:hover:not(:focus) {
   justify-content: center;
   flex: none;
 }
-.tray-move {
-  display: flex;
-  gap: 1px;
-}
-.tray-move button {
-  border: none;
-  background: none;
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 2px;
-}
-.tray-move button:hover:not(:disabled) {
-  color: var(--ink);
-}
-.tray-move button:disabled {
-  opacity: 0.25;
-  cursor: default;
-}
 
 /* Phones (members open the shared link on their own devices). The pinned rail becomes a
  * bottom sheet above the tray so the map keeps the full width. */
@@ -1658,7 +1838,10 @@ select:hover:not(:focus) {
 .pace-pill {
   position: absolute;
   left: 12px;
-  bottom: 12px;
+  /* Above the tray, not under it. Both only ever render with a map on screen, and the tray sits
+     at a higher z-index — so at bottom:12px the pill was simply covered. It takes the same shelf
+     the organizer's suggest bar uses, which is free in viewer mode. */
+  bottom: 108px;
   transition: left var(--dur);
   z-index: 30;
   display: flex;

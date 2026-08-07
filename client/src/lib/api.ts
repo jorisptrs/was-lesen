@@ -1,32 +1,8 @@
 import { type SavedRun, validateSavedRun } from "@sb/shared";
 
-// The organizer gate + published-run API. With APP_PASSPHRASE set server-side, every call
-// except health/current needs the passphrase header; visitors browse the published map only.
-
-const PASS_KEY = "sb:passphrase";
-
-export function loadPassphrase(): string {
-  try {
-    return localStorage.getItem(PASS_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-export function savePassphrase(pw: string): void {
-  try {
-    if (pw) localStorage.setItem(PASS_KEY, pw);
-    else localStorage.removeItem(PASS_KEY);
-  } catch {
-    // private mode — the unlock just won't survive a reload
-  }
-}
-
-/** Header for gated calls. Harmless when the gate is off (server ignores it). */
-export function authHeaders(): Record<string, string> {
-  const pw = loadPassphrase();
-  return pw ? { "X-App-Passphrase": pw } : {};
-}
+// There is no passphrase. Which app you get is decided by what the SERVER can do: the
+// organizer's laptop has a `claude` login and serves the run routes; a host doesn't and doesn't.
+// See routes/health.ts — `canRun` is the whole of it.
 
 export async function errorMessage(res: Response): Promise<string> {
   const text = await res.text().catch(() => "");
@@ -44,11 +20,12 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-/** 200 = this browser can organize (valid passphrase, or the gate is off). */
-export async function checkUnlocked(pw?: string): Promise<boolean> {
-  const headers = pw ? { "X-App-Passphrase": pw } : authHeaders();
-  const res = await fetch("/api/auth-check", { headers });
-  return res.ok;
+/** Can the server we're talking to run the pipeline? False → the read-only viewer. */
+export async function fetchCanRun(): Promise<boolean> {
+  const res = await fetch("/api/health");
+  if (!res.ok) return false;
+  const data = (await res.json().catch(() => ({}))) as { canRun?: boolean };
+  return data.canRun === true;
 }
 
 /** The run the main page shows to everyone — null when nothing is published. */
@@ -62,7 +39,7 @@ export async function fetchCurrent(): Promise<SavedRun | null> {
 export async function publishRun(run: SavedRun): Promise<{ publishedTo?: string }> {
   const res = await fetch("/api/publish", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ run }),
   });
   return jsonOrThrow<{ publishedTo?: string }>(res);

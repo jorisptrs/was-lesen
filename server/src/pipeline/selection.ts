@@ -11,9 +11,15 @@ export const SELECTION = {
   NEUTRAL_FIT: 5, // fit assigned to a member the model didn't score
 } as const;
 
+/** The label a book carries before (or without) embedding-based clustering. Stage 3 no longer
+ * proposes topics, so this is what the map shows when clustering is off or unavailable. */
+export const UNGROUPED_LABEL = "All books";
+
 /** Stage-3 fields merged onto a verified book, before the app computes avg / serves / selection. */
 export interface ScoredInput extends VerifiedBook {
-  clusterLabel: string;
+  /** Absent from Stage 3 by design (M36) — `attachSemantics` assigns the real labels. Present
+   * when an already-scored card is fed back in (M38 re-selection), and then preserved. */
+  clusterLabel?: string;
   complexity: ScoredCard["complexity"];
   mode: ScoredCard["mode"];
   summary: string;
@@ -35,22 +41,18 @@ const quality = (b: ScoredCard): number => qualityOf(b.avgFit, b.discussability,
 const fitFor = (b: ScoredCard, member: string): number =>
   b.perMember.find((p) => p.member === member)?.fit ?? SELECTION.NEUTRAL_FIT;
 
-/** Normalise one scored input: clamp fits, fill missing members, compute avgFit + servesMost. */
+/** Normalise one scored input: clamp fits, fill missing members, compute avgFit. */
 function finalize(input: ScoredInput, memberNames: string[]): ScoredCard {
   const given = new Map(input.perMember.map((p) => [p.member, clamp(p.fit, 1, 10)]));
   const perMember: MemberFit[] = memberNames.map((m) => ({ member: m, fit: given.get(m) ?? SELECTION.NEUTRAL_FIT }));
   const avgFit = perMember.length ? perMember.reduce((s, p) => s + p.fit, 0) / perMember.length : SELECTION.NEUTRAL_FIT;
   const discussability = clamp(input.discussability, 1, 10);
-  const servesMost = perMember
-    .filter((p) => p.fit >= SELECTION.SERVE_FIT_MIN)
-    .sort((a, z) => z.fit - a.fit)
-    .map((p) => p.member);
   return {
     ...input,
+    clusterLabel: input.clusterLabel?.trim() || UNGROUPED_LABEL,
     discussability,
     perMember,
     avgFit: Math.round(avgFit * 10) / 10,
-    servesMost,
     belowThreshold: qualityOf(avgFit, discussability, input.pageCount) < SELECTION.QUALITY_MIN,
     pulledInFor: null,
   };
@@ -62,7 +64,15 @@ function finalize(input: ScoredInput, memberNames: string[]): ScoredCard {
  * served by ≥2" pulls in a below-threshold book for a quiet member (coverage > ceiling). Solo
  * mode uncaps the display. All arithmetic is here — never in the model.
  */
-export function selectBooks(inputs: ScoredInput[], memberNames: string[], soloMode: boolean): SelectionResult {
+export function selectBooks(
+  inputs: ScoredInput[],
+  memberNames: string[],
+  soloMode: boolean,
+  /** Ids that appear on the map whatever they score. A human named these out loud; the tool's
+   * job is then to show what the group would make of them, not to overrule the ask. They still
+   * sort by quality, so a weak forced pick lands last and its rank says so. */
+  forceIds?: ReadonlySet<string>,
+): SelectionResult {
   const all = inputs.map((b) => finalize(b, memberNames)).sort((a, z) => quality(z) - quality(a));
 
   const quietMemberPulls: { member: string; bookId: string }[] = [];
@@ -100,6 +110,13 @@ export function selectBooks(inputs: ScoredInput[], memberNames: string[], soloMo
         count++;
       }
       if (count === 0) unservableMembers.push(member);
+    }
+  }
+
+  if (forceIds?.size) {
+    const inSel = new Set(selected.map((b) => b.id));
+    for (const b of all) {
+      if (forceIds.has(b.id) && !inSel.has(b.id)) selected.push(b);
     }
   }
 

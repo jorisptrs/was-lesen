@@ -1,18 +1,36 @@
-import type { Request, Response } from "express";
-import type { SseEvent } from "@sb/shared";
+import type { Response } from "express";
 
-export interface Sse {
-  send: (event: SseEvent) => void;
+export interface Sse<E> {
+  send: (event: E) => void;
   close: () => void;
 }
 
 /**
- * Open a Server-Sent Events stream on `res`. Each event is written as an
- * `event: <type>` / `data: <json>` frame. A 15s heartbeat comment keeps the connection
- * alive. Buffering is disabled (`X-Accel-Buffering: no`, `no-transform`); the route must
- * also be excluded from any response compression (added in M8).
+ * Every route that answers with an SSE stream. `server.ts`'s compression middleware MUST skip
+ * these: compression buffers the response, so a "streaming" route would deliver everything at
+ * once when it ends. Adding an SSE route and forgetting this list is the silent failure mode —
+ * the route still works, it just stops streaming. Kept next to `openSse` because that is what
+ * an implementer of the next SSE route is reading.
  */
-export function openSse(_req: Request, res: Response): Sse {
+export const SSE_PATHS: ReadonlySet<string> = new Set(["/api/run", "/api/normalize", "/api/suggest/rescore"]);
+
+/** Express is non-strict about trailing slashes, so `/api/run/` reaches the same handler and
+ * must be excluded from compression too. */
+export function isSsePath(path: string): boolean {
+  return SSE_PATHS.has(path.length > 1 ? path.replace(/\/+$/, "") : path);
+}
+
+/**
+ * Open a Server-Sent Events stream on `res`, typed to one route's event union. Each event is
+ * written as an `event: <type>` / `data: <json>` frame. A 15s heartbeat comment keeps the
+ * connection alive. Buffering is disabled (`X-Accel-Buffering: no`, `no-transform`).
+ *
+ * Deliberately takes only `res`: it never reads the request, which is what lets it stream a
+ * response to a POST. Two rules for callers: do validation/rate-limiting BEFORE opening (once
+ * the stream is open, an HTTP status is no longer available), and abort on `res` "close", never
+ * `req` "close" — for a buffered POST body the latter fires as soon as the body is read.
+ */
+export function openSse<E extends { type: string }>(res: Response): Sse<E> {
   res.status(200);
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -24,7 +42,7 @@ export function openSse(_req: Request, res: Response): Sse {
     if (!res.writableEnded) res.write(": ping\n\n");
   }, 15_000);
 
-  const send = (event: SseEvent) => {
+  const send = (event: E) => {
     if (res.writableEnded) return;
     res.write(`event: ${event.type}\n`);
     res.write(`data: ${JSON.stringify(event)}\n\n`);

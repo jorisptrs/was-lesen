@@ -2,10 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildMembersText,
   paceStatsFrom,
-  detectCsvKind,
-  mergePastReads,
+  isFeedbackCsv,
   parseCsv,
-  parseFeedbackCsv,
   parseMembersText,
   parsePaceRange,
   stripSkippedConstraints,
@@ -48,29 +46,13 @@ describe("hedged entries pass through the CSV split untouched (Stage-0 LLM clean
   });
 });
 
-describe("feedback CSV", () => {
-  it("detects the feedback form vs the intake form", () => {
-    expect(detectCsvKind(FEEDBACK_CSV)).toBe("feedback");
-    expect(detectCsvKind('"What\'s your name?","What are you interested in reading?"\nA,books')).toBe("members");
-  });
-
-  it("groups rows into a PastRead with finish count, avg rating, and notes", () => {
-    const reads = parseFeedbackCsv(FEEDBACK_CSV);
-    expect(reads).toHaveLength(1);
-    const r = reads[0]!;
-    expect(r.title).toBe("Thinking in Systems");
-    expect(r.finished).toBe("2/3 finished"); // Finished + Mostly count; "Some of it" doesn't
-    expect(r.avgRating).toBe(3.7); // (4+2+5)/3 rounded to 1 decimal
-    expect(r.notes).toHaveLength(2); // Silke left no note
-    expect(r.notes![1]).toEqual({ member: "Sasha", rating: 2, note: "too abstract for me" });
-  });
-
-  it("merges re-imports by title, new data winning", () => {
-    const prev = parseFeedbackCsv(FEEDBACK_CSV);
-    const next = [{ title: "thinking in systems", avgRating: 4.0, finished: "3/3 finished", notes: [] }];
-    const merged = mergePastReads(prev, next);
-    expect(merged).toHaveLength(1);
-    expect(merged[0]!.avgRating).toBe(4.0);
+describe("isFeedbackCsv", () => {
+  // The feedback import is gone — past reads are typed into the panel. This check only has to
+  // RECOGNISE the old export so it isn't parsed as an intake, which would invent members out of
+  // feedback rows.
+  it("recognises the post-read export and lets the intake through", () => {
+    expect(isFeedbackCsv(FEEDBACK_CSV)).toBe(true);
+    expect(isFeedbackCsv('"What\'s your name?","What are you interested in reading?"\nA,books')).toBe(false);
   });
 });
 
@@ -152,8 +134,25 @@ describe("tallyCsvToMembersText", () => {
     expect(paceStats!.min).toBe(50); // Ana's lower bound
     expect(paceStats!.max).toBe(100);
     expect(paceStats!.slowest).toBe("Ana");
-    expect(paceStats!.avg).toBe(paceHint); // mean of midpoints [75, 100] = 87.5 → 88
+    expect(paceStats!.median).toBe(paceHint); // midpoints [75, 100] → 87.5 → 88
     expect(paceHint).toBe(88);
+  });
+
+  it("parses the SIMPLER form the group now fills in (no pace column)", () => {
+    // Regression pin on the canonical 2026-08 intake export, headers verbatim (Tally truncates
+    // them to "List books..."). No "#pages" question → paceHint/paceStats null and the pace
+    // graph stays hidden; the run then falls back to the 180 p/2wk default.
+    const simple =
+      '"Submission ID","Respondent ID","Submitted at","What\'s your name?","What are you interested in reading?",' +
+      '"Concretely","List books...","List books... (2)","Anything else?"\n' +
+      '"X51KPE4","rjpPDQp","2026-08-06 05:56:31","Jojo","I like trains","Trains","Nontrainland","trainy","Hihi"\n';
+    const { text, count, paceHint, paceStats, constraints, members } = tallyCsvToMembersText(simple);
+    expect(count).toBe(1);
+    expect(paceHint).toBeNull();
+    expect(paceStats).toBeNull();
+    expect(text).toContain("Jojo: I like trains");
+    expect(members[0]).toMatchObject({ loved: ["Trains"], read: ["Nontrainland"], suggest: ["trainy"] });
+    expect(constraints).toBe("Jojo: Hihi");
   });
 
   it("skips fully empty responses and rejects non-Tally CSVs", () => {
@@ -250,36 +249,8 @@ describe("belief-to-stress-test column (intake)", () => {
 
   it("leaves detection and old CSVs (no belief column) unchanged", () => {
     const old = '"What\'s your name?","What are you interested in reading?"\nA,books';
-    expect(detectCsvKind(old)).toBe("members");
+    expect(isFeedbackCsv(old)).toBe(false);
     expect(tallyCsvToMembersText(old).members[0]!.paragraph).toBe("books");
-  });
-});
-
-describe("mind-change column (feedback)", () => {
-  const header =
-    '"What\'s your name?","Which book did we read?","Did you finish it?","How satisfied were you with the pick? (1-5)","One line of feedback (optional)","Did this book change your mind about anything? Name the belief — or \'none\'"';
-
-  it("merges the mind-change into the note", () => {
-    const csv = header + "\n" + 'Mara,Thinking in Systems,Finished,4,"a bit dry","stocks and flows beat blame"\n';
-    const r = parseFeedbackCsv(csv)[0]!;
-    expect(r.notes![0]!.note).toBe("a bit dry — Changed my mind: stocks and flows beat blame");
-  });
-
-  it("creates a notes entry for a mind-change without other feedback", () => {
-    const csv = header + "\n" + "Sasha,Thinking in Systems,Finished,3,,leverage points exist\n";
-    const r = parseFeedbackCsv(csv)[0]!;
-    expect(r.notes).toHaveLength(1);
-    expect(r.notes![0]!.note).toBe("Changed my mind: leverage points exist");
-  });
-
-  it("treats 'none' as no mind-change", () => {
-    const csv = header + "\n" + "Silke,Thinking in Systems,Finished,5,,none\n";
-    const r = parseFeedbackCsv(csv)[0]!;
-    expect(r.notes ?? []).toHaveLength(0);
-  });
-
-  it("still detects the feedback kind with the extra column", () => {
-    expect(detectCsvKind(header + "\nSarah,X,Finished,4,,none")).toBe("feedback");
   });
 });
 
@@ -289,14 +260,34 @@ describe("paceStatsFrom (skip-aware recompute)", () => {
     { name: "Mara", low: 150, high: 200 },
     { name: "Zoë", low: 100, high: 150 },
   ];
-  it("aggregates min/avg/max and names the slowest", () => {
+  it("aggregates min/median/max and names the slowest", () => {
     const s = paceStatsFrom(rows)!;
     expect([s.min, s.max, s.slowest]).toEqual([50, 200, "Nova"]);
-    expect(s.avg).toBe(Math.round((75 + 175 + 125) / 3));
+    expect(s.median).toBe(125); // midpoints 75/175/125 → sorted 75,125,175
   });
   it("recomputes when the slowest member is filtered out (skipped)", () => {
     const s = paceStatsFrom(rows.filter((r) => r.name !== "Nova"))!;
-    expect([s.min, s.slowest, s.avg]).toEqual([100, "Zoë", 150]);
+    expect([s.min, s.slowest, s.median]).toEqual([100, "Zoë", 150]);
+  });
+  it("is not dragged up by one very fast reader", () => {
+    // Real intake: one member answered 600 pages/2wk while everyone else was 50–150.
+    // A mean would suggest 195 as the group default and halve every session estimate.
+    const s = paceStatsFrom([
+      { name: "A", low: 50, high: 50 },
+      { name: "B", low: 50, high: 100 },
+      { name: "C", low: 100, high: 100 },
+      { name: "D", low: 150, high: 150 },
+      { name: "E", low: 600, high: 600 },
+    ])!;
+    expect(s.median).toBe(100); // midpoints 50,75,100,150,600
+    expect(s.max).toBe(600); // the outlier still shows in the spread
+  });
+  it("averages the two middle midpoints for an even member count", () => {
+    const s = paceStatsFrom([
+      { name: "A", low: 50, high: 100 }, // 75
+      { name: "B", low: 100, high: 100 }, // 100
+    ])!;
+    expect(s.median).toBe(88); // (75 + 100) / 2 = 87.5 → 88
   });
   it("returns null for no rows", () => {
     expect(paceStatsFrom([])).toBeNull();

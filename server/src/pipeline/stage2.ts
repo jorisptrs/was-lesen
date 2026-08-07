@@ -1,5 +1,5 @@
 import pLimit from "p-limit";
-import type { Candidate, VerifiedBook } from "@sb/shared";
+import type { Candidate, Provenance, VerifiedBook } from "@sb/shared";
 import { getCached, setCached } from "../books/cache";
 import type { Match } from "../books/match";
 import { authorMatches, dice, pickBestMatch } from "../books/match";
@@ -182,7 +182,13 @@ export async function verifyCandidate(c: Candidate, signal: AbortSignal): Promis
 /** Merge a duplicate into its surviving card: canonical (verified) fields win, and the
  * strongest member badge survives (suggested > liked > Claude pick — provenance matters on
  * the map). */
-const PROVENANCE_RANK = { member_nomination: 2, member_loved: 1, claude_own_pick: 0 } as const;
+// Typed as a total Record so adding a provenance can't silently fall through to `undefined`.
+const PROVENANCE_RANK: Record<Provenance, number> = {
+  member_nomination: 2,
+  organizer_add: 2, // typed into the room, same standing as a member's own suggestion
+  member_loved: 1,
+  claude_own_pick: 0,
+};
 function mergeDupe(seen: VerifiedBook, dup: VerifiedBook): void {
   const seenRank = PROVENANCE_RANK[seen.provenance];
   const dupRank = PROVENANCE_RANK[dup.provenance];

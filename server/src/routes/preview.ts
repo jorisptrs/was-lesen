@@ -1,29 +1,37 @@
 import type { Request, Response } from "express";
 import type { BookRef, PromptPreview, RunRequest } from "@sb/shared";
 import { config } from "../config";
-import { resolveHistory, resolveMembers, resolveQuality } from "../domain/request";
-import { seedLoved, seedNominations } from "../pipeline/candidates";
-import { lensAsk } from "../pipeline/stage1";
+import { resolveMembers, resolveQuality, resolveRunHistory } from "../domain/request";
+import { pastReadsHistory } from "../pastReadsStore";
+import { seedPool } from "../pipeline/candidates";
+import { lensAsk, lensesFor } from "../pipeline/stage1";
 import { STAGE1_SYSTEMS, STAGE3_SYSTEM, assembleStage1User } from "../prompts/assemble";
 
 /**
  * POST /api/run/preview → the assembled prompts WITHOUT calling Claude (the "Show Prompt"
- * modal). Stage 1 runs as three lens passes over one shared user prompt — the preview shows
- * all three systems and the champions-lens user prompt. Stage 3's user prompt can only be
- * built after Stage-2 verification, so it stays a placeholder.
+ * modal). Stage 1 runs as parallel lens passes over one shared user prompt. The preview must
+ * show what THIS run would actually send: only the lenses this member count uses (solo drops
+ * bridges), with each pass's real ask line and quota. Stage 3's user prompt can only be built
+ * after Stage-2 verification, so it stays a placeholder.
  */
 export function handlePreview(req: Request, res: Response): void {
   const body = (req.body ?? {}) as RunRequest;
   const members = resolveMembers(body);
-  const history = resolveHistory(body);
-  const seededRefs: BookRef[] = [...seedNominations(members), ...seedLoved(members)].map((c) => ({
+  // Same merge as the run, so Show-Prompt is honest about what the store contributes.
+  const history = resolveRunHistory(body, pastReadsHistory());
+  // The SAME seeding the run does, exclusions included — otherwise the preview shows the model
+  // a book (a liked one the group has since read together) that the real run drops.
+  const seededRefs: BookRef[] = seedPool(members, history).map((c) => ({
     title: c.title,
     ...(c.author ? { author: c.author } : {}),
   }));
 
-  const systems = (Object.entries(STAGE1_SYSTEMS) as [keyof typeof STAGE1_SYSTEMS, string][])
-    .map(([lens, text]) => `--- ${lens.toUpperCase()} pass ---\n\n${text}`)
-    .join("\n\n");
+  const lenses = lensesFor(members.length);
+  const systems = lenses.map((lens) => `--- ${lens.toUpperCase()} pass ---\n\n${STAGE1_SYSTEMS[lens]}`).join("\n\n");
+  const otherAsks = lenses
+    .slice(1)
+    .map((lens) => `— ${lens}: ${lensAsk(lens, members.length)}`)
+    .join("\n");
 
   const { model, effort } = resolveQuality(body, config.ANTHROPIC_EFFORT);
   const preview: PromptPreview = {
@@ -32,8 +40,8 @@ export function handlePreview(req: Request, res: Response): void {
     stage1: {
       system: systems,
       user: members.length
-        ? assembleStage1User(members, seededRefs, history, lensAsk("champions", members.length)) +
-          "\n\n(The bridges and wildcards passes share this user prompt with their own ask line.)"
+        ? assembleStage1User(members, seededRefs, history, lensAsk(lenses[0]!, members.length)) +
+          (otherAsks ? `\n\n(The other pass shares this user prompt with its own ask line:\n${otherAsks})` : "")
         : "(add members to see the assembled Stage-1 prompt)",
     },
     stage3: {

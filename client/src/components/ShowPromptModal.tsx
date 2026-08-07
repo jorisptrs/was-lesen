@@ -1,4 +1,3 @@
-import { authHeaders } from "../lib/api";
 import { useEffect, useState } from "react";
 import type { PromptPreview, RunRequest } from "@sb/shared";
 
@@ -10,7 +9,7 @@ export function ShowPromptModal({ body, onClose }: { body: RunRequest; onClose: 
     let alive = true;
     fetch("/api/run/preview", {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     })
       .then((r) => (r.ok ? (r.json() as Promise<PromptPreview>) : Promise.reject(new Error(`Preview failed (${r.status})`))))

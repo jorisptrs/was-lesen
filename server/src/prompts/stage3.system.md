@@ -28,15 +28,6 @@ For each book:
 - If PAST GROUP READS with member feedback are provided, calibrate with them: a member who
   found a past pick "too dense" scores lower on similarly dense books; one who loved it scores
   higher on close neighbours. Never propose or score a past read itself.
-- **clusterLabel** — the book's broad TOPIC, i.e. what it is ABOUT, as one or two plain words in
-  Title Case: e.g. "History", "Programming", "Startups", "Economics", "Science", "Psychology",
-  "Philosophy", "Politics", "Technology", "Mathematics", "Biology", "Space", "War", "Design".
-  Cluster by SUBJECT MATTER, never by form or genre — do NOT use "Fiction", "Non-fiction",
-  "Novel", "Biography", "Memoir", or "Textbook" (a sci-fi novel about AI is "Technology" or
-  "Science"; a biography of a physicist is "Science"; a memoir about running a company is
-  "Business"). Keep topics BROAD — do not split a field into sub-types (use "Philosophy", not
-  "Philosophy of Mind" vs "Philosophy of Science"). REUSE the same topic across books so the whole
-  set collapses into a handful of big topics (aim for 4–8 total).
 - **complexity** — `light`, `moderate`, or `demanding` (reading difficulty).
 - **mode** — `comfort` (an easy, crowd-pleasing pick) or `stretch` (asks more of the group).
 - **summary** — two paragraphs separated by a blank line (~110–150 words total):
@@ -52,5 +43,7 @@ For each book:
 - **expedition** — `true` if this is a big, demanding undertaking (long and/or hard — an
   "expedition"), otherwise `false`.
 
-Output JSON only, matching the provided schema: a `books` array keyed by `id`. No prose
-outside the JSON. Do not compute averages or pick winners — just score; the app does the rest.
+Output one line per book, following the output instructions: a single object carrying the book's
+exact `id` and every field above. Every book in the list gets a line, and every line gets the full
+treatment — later books are scored as carefully as the first. Do not compute averages or pick
+winners — just score; the app does the rest.
