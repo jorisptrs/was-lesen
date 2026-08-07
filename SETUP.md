@@ -82,7 +82,19 @@ filesystem is wiped on every restart. All fine for this, with two consequences w
   click (you keep the run as a JSON file), but don't push code an hour before your meeting.
 - If the instance runs out of memory on startup, set `EMBEDDINGS_PROVIDER=none` in the Render
   environment. You lose the semantic layout (the map falls back to a deterministic arrangement);
-  everything else works.
+  everything else works. (`render.yaml` already sets this — clustering happens on your laptop and
+  the map arrives with its positions baked in.)
+
+**Hosting somewhere else?** Anything that runs a Node process works — it's one long-running
+server (`npm run build && npm start`) or the included `Dockerfile`. Two things to carry over:
+set `TRUST_PROXY=1` so the per-IP rate limit sees real client addresses rather than the proxy's,
+and keep it to a single instance (the rate limit is in-memory, so it isn't serverless-friendly).
+
+Free options as of mid-2026, if Render doesn't suit: **Google Cloud Run** has a real
+never-expiring free quota and scales to zero, but wants a card on file. **Oracle Cloud Always
+Free** is the roomiest (2 OCPU / 12 GB ARM) but you manage the VM yourself and provisioning
+often reports "out of capacity" outside Frankfurt and Singapore. **Fly.io** and **Railway** no
+longer have a genuine free tier. Koyeb's free tier closed after Mistral acquired them.
 
 ---
 
