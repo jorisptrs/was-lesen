@@ -10,12 +10,19 @@ humans choose.**
 
 Works for one person too, if you just want something good to read next.
 
+[![The map a group sees: 25 verified books grouped into themes, each ranked](assets/map.png)](https://was-lesen.onrender.com)
+
+*A real round. **[See it live →](https://was-lesen.onrender.com)** — click any cover for what the
+book is about and how well it fits each person.*
+
 ---
 
 ## How a cycle works
 
 **1 · Ask the group.** A short form: what you feel like reading, a few books you loved, a few
 you've already read, anything the group should avoid. Five questions, five minutes to fill in.
+There's a ready-made one — **[copy this Tally template](https://tally.so/templates/reading-interests/wdovK3)**
+— or write your own; the importer matches columns by what they ask, not by their order.
 
 **2 · Import the answers.** Drop the CSV in. Typo'd titles get fixed, half-remembered ones get
 matched against real book catalogs, and you get one card per member to skim and correct. Anyone

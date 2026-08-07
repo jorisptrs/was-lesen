@@ -132,10 +132,12 @@ Fix: a free [UptimeRobot](https://uptimerobot.com) monitor pinging
 
 ## 5. Build your intake form
 
-This is the only fiddly part, because the app matches your form's **column headers by keyword**.
-Use the question wordings below and it will just work.
+**Shortcut: [copy this Tally template](https://tally.so/templates/reading-interests/wdovK3).**
+It already has the right questions with the right wording — duplicate it, adjust anything you
+like, and send it out. You can skip the rest of this section.
 
-Make one form (I use [Tally](https://tally.so)) with these questions:
+Building your own? The app matches your form's **column headers by keyword**, so use the
+wordings below and it will just work:
 
 | # | Ask this | Matched by | Becomes |
 |---|---|---|---|
