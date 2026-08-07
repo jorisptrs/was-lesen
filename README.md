@@ -1,18 +1,16 @@
 # Was lesen?
 
-*"What shall we read?"* — a companion for a book club that keeps ending up with whatever the
-loudest person suggested.
+*"What shall we read?"* — a companion for book clubs to pick books with.
 
-Everyone writes a few sentences about what they'd like to read. Claude proposes real, verified
+Everyone writes a few sentences about what they'd like to read. Claude proposes additional
 books that connect those interests, scores each one for each member, and lays them out as a map
-you can project on a wall. The group looks at it together and decides. **Claude nominates,
-humans choose.**
+you can project on a wall. The group looks at it together and decides.
 
 Works for one person too, if you just want something good to read next.
 
 [![The map a group sees: 25 verified books grouped into themes, each ranked](assets/map.png)](https://was-lesen.onrender.com)
 
-*A real round. **[See it live →](https://was-lesen.onrender.com)** — click any cover for what the
+**[Example →](https://was-lesen.onrender.com)** — click any cover for what the
 book is about and how well it fits each person.*
 
 ---
@@ -47,6 +45,8 @@ matched against real book catalogs, and you get one card per member to skim and 
 who won't be at the next meeting can be skipped — their tastes leave the round entirely.
 
 **3 · Run it.** A few minutes. You'll see it scouting, verifying, and scoring as it goes.
+
+(potentially add additional suggestions on the spot)
 
 **4 · Look at the map together.** Books sit near others they resemble; the coloured names are
 the themes that emerged. Click any cover for what it's about, why it was picked, and how well
