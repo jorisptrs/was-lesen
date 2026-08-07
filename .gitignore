@@ -14,7 +14,3 @@ coverage/
 # has an obvious place to put them that isn't a folder you empty (Downloads, Desktop, /tmp).
 /backups/*
 !/backups/README.md
-
-# Personal Obsidian vaults staged here temporarily — never commit
-/Joris Vault/
-/Obsidian vault/
