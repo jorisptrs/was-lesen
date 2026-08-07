@@ -220,8 +220,11 @@ it in a spreadsheet and fix a title; the app re-reads it whenever it changes.
     that only works on the laptop.
 11. Afterwards, add what you read under **Past reads** (§6).
 
-**Keep the saved JSON files somewhere outside the repo.** They contain member names and their
-paragraphs.
+**Save runs into `backups/`.** That folder is gitignored, so the files can't be committed —
+they carry member names and the paragraphs people wrote. Don't keep them in Downloads or on the
+Desktop either; those get emptied, and on a free host the published map is the *only* other copy
+(the instance restarts on its own schedule and its disk doesn't survive). Restoring is
+*load run → publish*.
 
 ---
 
