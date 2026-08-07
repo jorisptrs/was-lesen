@@ -8,7 +8,7 @@ into a dashboard.
 
 1. [What you'll need](#1-what-youll-need)
 2. [Run it locally](#2-run-it-locally-this-is-the-main-way) · [Deploy it (optional)](#2b-deploy-it-optional--only-for-a-shareable-link)
-3. [Who can do what](#3-who-can-do-what-nothing-to-configure)
+3. [Who uses which](#3-who-uses-which-nothing-to-configure)
 4. [Keep it awake](#4-keep-it-awake-optional-but-recommended)
 5. [Build your intake form](#5-build-your-intake-form)
 6. [Record what you read](#6-record-what-you-read-no-second-form)
@@ -98,20 +98,28 @@ longer have a genuine free tier. Koyeb's free tier closed after Mistral acquired
 
 ---
 
-## 3. Who can do what (nothing to configure)
+## 3. Who uses which (nothing to configure)
 
-There are **no passwords anywhere**, and nothing to lock down. The two roles fall out of what
-each machine can actually do:
+You end up with two screens, and they're for different people at different moments.
 
-| | Your laptop | The deployed copy |
+**The deployed link is for the group, before you meet.** Send it round a day or two ahead;
+people browse the map on their phones, open the books that catch their eye, and arrive with
+opinions rather than hearing a list read out. It's also what you project during the session.
+They can shortlist into a tray and flip through Present — and that's all it does.
+
+**Your laptop is where the round is made.** Importing the form, running, fixing a member's card,
+adding a book someone names mid-session, keeping the past-reads list, publishing.
+
+| | Your laptop | The deployed link |
 |---|---|---|
+| Who opens it | you | everyone |
 | Has your `claude` login | yes | no |
-| Can run, import, add books | **yes** | no — those routes aren't even registered |
-| Shows the published map | yes | **yes** |
+| Run, import, add books, past reads | **yes** | no — those routes aren't even registered |
+| Map, book details, tray, Present | yes | **yes** |
 
-Open the deployed URL and you get the map, a tray to shortlist into, and a pace control. The
-run controls aren't hidden behind a password — on that machine they don't exist. So there's no
-passphrase to set, and no way to leave the deployment "open" by forgetting one.
+There are **no passwords anywhere**, and nothing to lock down. The run controls aren't hidden
+behind one on the deployed copy — on that machine they don't exist. So there's no passphrase to
+set, and no way to leave the deployment "open" by forgetting one.
 
 > **One accepted trade-off.** Publishing to your deployed copy is unauthenticated, so someone
 > who knows the URL could replace the map. Nothing leaks and nothing costs money if they do —
@@ -202,9 +210,15 @@ it in a spreadsheet and fix a title; the app re-reads it whenever it changes.
 6. Pick a quality preset (start with **test** — it's cheap and shows you the shape of the output).
 7. Hit **Run**. Takes 1–4 minutes depending on group size and model.
 8. When the map appears: **save** the run as JSON (keep it — it's your backup), then **publish**
-   it so everyone on the link sees the same map.
-9. At the meeting: project the map. Click covers for details. Collect candidates in the tray,
-   flip through **Present** for the big-cover advocacy view, then vote by hand-raise.
+   it.
+9. **Send the link round a day or two before you meet.** This is the point of deploying: people
+   browse the map on their phones, read what caught their eye, and turn up with an opinion
+   instead of hearing a list read out.
+10. At the meeting: project the map from your laptop. Click covers for details. Collect
+    candidates in the tray, flip through **Present** for the big-cover advocacy view, then vote
+    by hand-raise. If someone names a book that isn't there, type it into the bar and score it —
+    that only works on the laptop.
+11. Afterwards, add what you read under **Past reads** (§6).
 
 **Keep the saved JSON files somewhere outside the repo.** They contain member names and their
 paragraphs.

@@ -17,6 +17,24 @@ book is about and how well it fits each person.*
 
 ---
 
+## Two screens
+
+|  | **The link** — what the group gets | **Your laptop** — what you get |
+|---|---|---|
+| Who opens it | everyone | you, the organizer |
+| When | **before the session**, on the train, and together on the projector during it | setting the round up, and running it |
+| What it does | the map, any book's details and per-member fits, a tray to shortlist into, Present | all of that, plus everything that *makes* a map |
+
+The link is deliberately only the map. Members browse it the night before and turn up with
+opinions instead of picking from a list read aloud.
+
+Everything else lives on your laptop, because that's where your Claude login is: importing the
+form, running, correcting a member's card, adding a book someone names mid-session, keeping the
+past-reads list, and publishing. None of those exist on the deployed copy — not hidden behind a
+password, simply not there.
+
+---
+
 ## How a cycle works
 
 **1 · Ask the group.** A short form: what you feel like reading, a few books you loved, a few
@@ -69,11 +87,11 @@ Pick a quality level before running: **test** is cheap and only good for checkin
 ## Sharing a link with the group
 
 Optional, and free. Deploy a copy (there's a one-click [Render](https://render.com) blueprint in
-`render.yaml`), then hit **publish** after a run — everyone on the link sees the same map,
-read-only, on their phones.
+`render.yaml`), then hit **publish** after a run — everyone on the link sees the same map on
+their phones, and you send it round a day or two before you meet.
 
-There's nothing to configure and no password anywhere. The deployed copy has no `claude` login,
-so it can't run anything; it only shows the map you published. You do the work on your laptop.
+Nothing to configure, no password anywhere. Skip it entirely if you only ever use the laptop you
+plug into the projector.
 
 **[SETUP.md](SETUP.md) walks through the whole thing end to end** — form questions included — in
 about half an hour.
