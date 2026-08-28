@@ -1,11 +1,13 @@
 import { useState } from "react";
 
 /** The "?" in the top-right: a three-line super-summary of how the tool nominates, scores,
- * and maps — enough for a first-time group member on the projector, no more. */
+ * and maps — enough for a first-time group member on the projector, no more. Stays open until
+ * the button is clicked again: it's several sentences of reading, and closing it because the
+ * cursor drifted (or someone gestured with the presenter mouse) kept eating it mid-read. */
 export function Help() {
   const [open, setOpen] = useState(false);
   return (
-    <div className="help" onMouseLeave={() => setOpen(false)}>
+    <div className="help">
       <button className="help-btn" onClick={() => setOpen((o) => !o)} aria-label="How this works" title="How this works">
         ?
       </button>
