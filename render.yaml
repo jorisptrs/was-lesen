@@ -5,7 +5,7 @@
 # (the map falls back to the deterministic layout; everything else works).
 services:
   - type: web
-    name: was-lesen
+    name: patch-notes
     runtime: docker
     plan: free
     region: frankfurt # the group is in Europe
